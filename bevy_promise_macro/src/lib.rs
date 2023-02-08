@@ -1,7 +1,7 @@
 extern crate proc_macro;
-use proc_macro2::{TokenStream, Ident, TokenTree};
+use proc_macro2::{Ident, TokenStream, TokenTree};
 use quote::*;
-use syn::{self, Token, token::Comma, ext::IdentExt};
+use syn::{self, ext::IdentExt, token::Comma, Token};
 
 #[proc_macro]
 pub fn promise(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
@@ -13,7 +13,7 @@ pub fn promise(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let body = &promise.body;
     let args = &promise.system_args;
 
-    proc_macro::TokenStream::from(if let Some(value) =  &promise.value {
+    proc_macro::TokenStream::from(if let Some(value) = &promise.value {
         quote! {
             |::bevy::prelude::In((#core::AsyncState(#state), #core::AsyncValue(#value))), #args| {
                 #body
@@ -32,7 +32,7 @@ struct Promise {
     state: Ident,
     value: Option<Ident>,
     system_args: TokenStream,
-    body: TokenStream
+    body: TokenStream,
 }
 
 impl syn::parse::Parse for Promise {
@@ -56,21 +56,21 @@ impl syn::parse::Parse for Promise {
         } else {
             None
         };
-        
+
         // let parser = Punctuated::<PatType, Token![,]>::parse_terminated;
         // let args = parser.parse(input.clone())?;
         // let args = Punctuated::<FnArg, Comma>::parse_terminated(input)?;
         // let args = input.parse::<Punctuated::<FnArg, Token![,]>>()?;
         let system_args = input.step(|cursor| {
             let mut rest = *cursor;
-            let mut result = quote!{ };
+            let mut result = quote! {};
             while let Some((tt, next)) = rest.token_tree() {
                 match &tt {
                     TokenTree::Punct(punct) if punct.as_char() == '|' => {
                         return Ok((result, next));
                     }
                     t => {
-                        result = quote!{ #result #t };
+                        result = quote! { #result #t };
                         rest = next;
                     }
                 }
@@ -79,15 +79,16 @@ impl syn::parse::Parse for Promise {
         })?;
         // panic!("parsed terminated");
         // input.parse::<Token![|]>()?;
-        
+
         let body = input.parse::<TokenStream>()?;
-        Ok(Promise { state, value, body, system_args })
+        Ok(Promise {
+            state,
+            value,
+            body,
+            system_args,
+        })
     }
 }
-
-
-
-
 
 struct Context {
     core_path: TokenStream,
@@ -116,7 +117,8 @@ impl Context {
         let Some(pkg) = pkg.get("name") else { return context };
         let Some(_pkg) = pkg.as_str() else { return context };
         // in future, macro may be used from inside the workspace
-        if false { //pkg.trim() == "bevy_promise_http" {
+        if false {
+            //pkg.trim() == "bevy_promise_http" {
             context.core_path = quote! { ::bevy_promise_core };
         } else {
             context.core_path = quote! { ::bevy_promise::core };
