@@ -1,6 +1,7 @@
 use bevy::app::AppExit;
 use bevy::prelude::*;
 use bevy_promise::prelude::*;
+use bevy_promise_http::{HttpOpsExtension, Response};
 
 fn main() {
     App::new()
@@ -15,10 +16,7 @@ fn setup(mut commands: Commands) {
     commands.add(
         promise!(|s, time: Res<Time>| {
             let t = time.elapsed_seconds();
-            info!(
-                "start with 31, started at {}, start time stored in state.",
-                t
-            );
+            info!("start with 31, started at {t}, start time stored in state.");
             s.with(|_| t).ok(31)
         })
         .then(promise!(|s, r| {
@@ -50,11 +48,22 @@ fn setup(mut commands: Commands) {
             commands.add(|_: &mut World| info!("Executing custom command at the end."));
             s.ok(())
         }))
+        .then(promise!(|s, _| {
+            info!("requesing https://google.com");
+            s.ops().http().get("https://google.com").send()
+        }))
+        .then_catch(promise!(|s, r| {
+            match r as Result<Response, String> {
+                Ok(r) => info!("Google respond with {}, body size: {}", r.status, r.bytes.len()),
+                Err(e) => warn!("Error requesting Google: {e}")
+            }
+            s.ok(())
+        }))
         .then(promise!(
             |s, _, time: Res<Time>, mut exit: EventWriter<AppExit>| {
                 info!(
                     "Done, time to process: {} (start time took from state {}",
-                    time.elapsed_seconds() - s.0,
+                    time.elapsed_seconds() - s.value,
                     s
                 );
                 exit.send(AppExit);

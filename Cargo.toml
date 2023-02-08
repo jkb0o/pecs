@@ -5,11 +5,13 @@ edition = "2021"
 
 [workspace]
 members = [
-    "bevy_promise_core",
-    "bevy_promise_macro"
+    "crates/bevy_promise_core",
+    "crates/bevy_promise_http",
+    "crates/bevy_promise_macro"
 ]
 
 [dependencies]
 bevy = "0.9"
-bevy_promise_macro = { path = "bevy_promise_macro" }
-bevy_promise_core = { path = "bevy_promise_core" }
+bevy_promise_macro = { path = "crates/bevy_promise_macro" }
+bevy_promise_core = { path = "crates/bevy_promise_core" }
+bevy_promise_http = { path = "crates/bevy_promise_http" }

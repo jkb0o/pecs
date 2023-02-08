@@ -8,20 +8,19 @@ pub fn promise(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let ctx = Context::new();
     let core = ctx.core_path();
     let promise = syn::parse_macro_input!(input as Promise);
-    // panic!("parsed");
     let state = &promise.state;
     let body = &promise.body;
     let args = &promise.system_args;
 
     proc_macro::TokenStream::from(if let Some(value) = &promise.value {
         quote! {
-            |::bevy::prelude::In((#core::AsyncState(#state), #core::AsyncValue(#value))), #args| {
+            |::bevy::prelude::In((#core::AsyncState(mut #state), #core::AsyncValue(#value))), #args| {
                 #body
             }
         }
     } else {
         quote! {
-            #core::Promise::new(|::bevy::prelude::In(#core::AsyncState(#state)), #args| {
+            #core::Promise::new(|::bevy::prelude::In(#core::AsyncState(mut #state)), #args| {
                 #body
             })
         }
@@ -56,11 +55,6 @@ impl syn::parse::Parse for Promise {
         } else {
             None
         };
-
-        // let parser = Punctuated::<PatType, Token![,]>::parse_terminated;
-        // let args = parser.parse(input.clone())?;
-        // let args = Punctuated::<FnArg, Comma>::parse_terminated(input)?;
-        // let args = input.parse::<Punctuated::<FnArg, Token![,]>>()?;
         let system_args = input.step(|cursor| {
             let mut rest = *cursor;
             let mut result = quote! {};
@@ -77,8 +71,6 @@ impl syn::parse::Parse for Promise {
             }
             Err(cursor.error("Expected `|` "))
         })?;
-        // panic!("parsed terminated");
-        // input.parse::<Token![|]>()?;
 
         let body = input.parse::<TokenStream>()?;
         Ok(Promise {
@@ -117,8 +109,7 @@ impl Context {
         let Some(pkg) = pkg.get("name") else { return context };
         let Some(_pkg) = pkg.as_str() else { return context };
         // in future, macro may be used from inside the workspace
-        if false {
-            //pkg.trim() == "bevy_promise_http" {
+        if false /* pkg.trim() == "bevy_promise_http" */ {
             context.core_path = quote! { ::bevy_promise_core };
         } else {
             context.core_path = quote! { ::bevy_promise::core };

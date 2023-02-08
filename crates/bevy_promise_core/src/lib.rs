@@ -8,71 +8,65 @@ use std::{
 
 use bevy::{ecs::system::Command, prelude::*, utils::HashMap};
 
-pub mod prelude {
-    pub use super::Promise;
-    pub use super::PromisePlugin;
-}
-
-pub struct PromisePlugin;
-impl Plugin for PromisePlugin {
-    fn build(&self, app: &mut App) {
-        app.insert_resource(timer::Timers::default())
-            .add_system(timer::process_timers);
-    }
-}
-pub struct AsyncOps<T>(T);
+pub struct AsyncOps<T>(pub T);
 
 pub struct AsyncState<T>(pub PromiseState<T>);
 pub struct AsyncValue<T>(pub T);
 
-pub fn promise_resolve<R: 'static, E: 'static, C: 'static>(
+pub fn promise_resolve<R: 'static, E: 'static, S: 'static>(
     world: &mut World,
     id: PromiseId,
     result: R,
-    context: C,
+    state: S,
 ) {
     let registry = world
-        .get_resource_or_insert_with(PromiseRegistry::<R, E, C>::default)
+        .get_resource_or_insert_with(PromiseRegistry::<R, E, S>::default)
         .clone();
-    // let prom = registry.0.write().unwrap().remove(&id).unwrap();
-    if let Some(resolve) = {
+    match {
         let mut write = registry.0.write().unwrap();
         let prom = write.get_mut(&id).unwrap();
-        mem::take(&mut prom.resolve)
+        (mem::take(&mut prom.resolve), mem::take(&mut prom.resolve_reject))
     } {
-        resolve(world, result, context);
+        (Some(resolve), None) => resolve(world, result, state),
+        (None, Some(resolve_reject)) => resolve_reject(world, Ok(result), state),
+        (None, None) => { },
+        _ => error!("Misconfigured promise")
     }
     registry.0.write().unwrap().remove(&id);
 }
 
-pub fn promise_reject<R: 'static, E: 'static, C: 'static>(
+pub fn promise_reject<R: 'static, E: 'static, S: 'static>(
     world: &mut World,
     id: PromiseId,
     error: E,
-    context: C,
+    state: S,
 ) {
     let registry = world
-        .get_resource_or_insert_with(PromiseRegistry::<R, E, C>::default)
+        .get_resource_or_insert_with(PromiseRegistry::<R, E, S>::default)
         .clone();
-    if let Some(reject) = {
+    match {
         let mut write = registry.0.write().unwrap();
         let prom = write.get_mut(&id).unwrap();
-        mem::take(&mut prom.reject)
+        let (r, rr) = (mem::take(&mut prom.reject), mem::take(&mut prom.resolve_reject));
+        (r, rr)
     } {
-        reject(world, error, context);
+        (Some(reject), None) => reject(world, error, state),
+        (None, Some(resolve_reject)) => resolve_reject(world, Err(error), state),
+        (None, None) => { },
+        _ => error!("Misconfigured promise")
     }
     registry.0.write().unwrap().remove(&id);
 }
 
-pub fn promise_register<R: 'static, E: 'static, C: 'static>(
+pub fn promise_register<R: 'static, E: 'static, S: 'static>(
     world: &mut World,
-    mut promise: Promise<R, E, C>,
+    mut promise: Promise<R, E, S>,
 ) {
     let id = promise.id;
     let register = promise.register;
     promise.register = None;
     let registry = world
-        .get_resource_or_insert_with(PromiseRegistry::<R, E, C>::default)
+        .get_resource_or_insert_with(PromiseRegistry::<R, E, S>::default)
         .clone();
     registry.0.write().unwrap().insert(id, promise);
     if let Some(register) = register {
@@ -80,19 +74,20 @@ pub fn promise_register<R: 'static, E: 'static, C: 'static>(
     }
 }
 
-pub struct Promise<R, E, C> {
+pub struct Promise<R, E, S> {
     id: PromiseId,
     register: Option<Box<dyn FnOnce(&mut World, PromiseId)>>,
-    resolve: Option<Box<dyn FnOnce(&mut World, R, C)>>,
-    reject: Option<Box<dyn FnOnce(&mut World, E, C)>>,
+    resolve: Option<Box<dyn FnOnce(&mut World, R, S)>>,
+    reject: Option<Box<dyn FnOnce(&mut World, E, S)>>,
+    resolve_reject: Option<Box<dyn FnOnce(&mut World, Result<R, E>, S)>>,
 }
-unsafe impl<R, E, C> Send for Promise<R, E, C> {}
-unsafe impl<R, E, C> Sync for Promise<R, E, C> {}
+unsafe impl<R, E, S> Send for Promise<R, E, S> {}
+unsafe impl<R, E, S> Sync for Promise<R, E, S> {}
 
-pub enum PromiseResult<R, E, C> {
-    Resolve(R, C),
-    Rejected(E, C),
-    Await(Promise<R, E, C>),
+pub enum PromiseResult<R, E, S> {
+    Resolve(R, S),
+    Rejected(E, S),
+    Await(Promise<R, E, S>),
 }
 
 pub struct OnceValue<T>(*mut T);
@@ -112,37 +107,46 @@ impl<T> OnceValue<T> {
     }
 }
 
-impl<R: 'static, E: 'static, C: 'static> PromiseResult<R, E, C> {
-    pub fn context<C2: 'static>(self, context: C2) -> PromiseResult<R, E, C2> {
-        let context = OnceValue::new(context);
+impl<R: 'static, E: 'static, S: 'static> PromiseResult<R, E, S> {
+    pub fn with<S2: 'static>(self, state: S2) -> PromiseResult<R, E, S2> {
+        let state = OnceValue::new(state);
         match self {
-            Self::Resolve(r, _) => PromiseResult::Resolve(r, context.get()),
-            Self::Rejected(e, _) => PromiseResult::Rejected(e, context.get()),
-            Self::Await(p) => PromiseResult::Await(
-                p.then(move |In((_, AsyncValue(r)))| PromiseResult::Resolve(r, context.get())),
-            ),
+            Self::Resolve(r, _) => PromiseResult::Resolve(r, state.get()),
+            Self::Rejected(e, _) => PromiseResult::Rejected(e, state.get()),
+            Self::Await(p) => PromiseResult::Await({
+                p.then_catch(move |In((_, AsyncValue(r)))| {
+                    match r {
+                        Ok(r) => {
+                            PromiseResult::Resolve(r, state.get())
+                        }
+                        Err(e) => {
+                            PromiseResult::Rejected(e, state.get())
+                        }
+                    }
+                })
+            }),
         }
     }
-    pub fn result<R2: 'static>(self, result: R2) -> PromiseResult<R2, E, C> {
+    pub fn result<R2: 'static>(self, result: R2) -> PromiseResult<R2, E, S> {
         let result = OnceValue::new(result);
         match self {
             Self::Resolve(_, c) => PromiseResult::Resolve(result.get(), c),
             Self::Rejected(e, c) => PromiseResult::Rejected(e, c),
             Self::Await(p) => PromiseResult::Await(
-                p.then(move |In((AsyncState(c), _))| PromiseResult::Resolve(result.get(), c.0)),
+                p.then(move |In((AsyncState(c), _))| PromiseResult::Resolve(result.get(), c.value)),
             ),
         }
     }
 }
 
 #[derive(Resource)]
-struct PromiseRegistry<R, E, C>(Arc<RwLock<HashMap<PromiseId, Promise<R, E, C>>>>);
-impl<R, E, C> Default for PromiseRegistry<R, E, C> {
+struct PromiseRegistry<R, E, S>(Arc<RwLock<HashMap<PromiseId, Promise<R, E, S>>>>);
+impl<R, E, S> Default for PromiseRegistry<R, E, S> {
     fn default() -> Self {
         PromiseRegistry(Arc::new(RwLock::new(HashMap::new())))
     }
 }
-impl<R, E, C> Clone for PromiseRegistry<R, E, C> {
+impl<R, E, S> Clone for PromiseRegistry<R, E, S> {
     fn clone(&self) -> Self {
         PromiseRegistry(self.0.clone())
     }
@@ -204,38 +208,39 @@ impl<R: 'static, E: 'static> Promise<R, E, ()> {
         PromiseResult::Await(promise)
     }
 }
-impl<R: 'static, E: 'static, C: 'static> Promise<R, E, C> {
-    pub fn new<Params, F: 'static + IntoSystem<AsyncState<()>, PromiseResult<R, E, C>, Params>>(
+impl<R: 'static, E: 'static, S: 'static> Promise<R, E, S> {
+    pub fn new<Params, F: 'static + IntoSystem<AsyncState<()>, PromiseResult<R, E, S>, Params>>(
         func: F,
-    ) -> Promise<R, E, C> {
+    ) -> Promise<R, E, S> {
         let id = Self::id();
         Promise {
             id,
             resolve: None,
             reject: None,
+            resolve_reject: None,
             register: Some(Box::new(move |world, id| {
                 let mut system = IntoSystem::into_system(func);
                 system.initialize(world);
                 let pr = system.run(AsyncState(PromiseState::new(())), world);
                 system.apply_buffers(world);
                 match pr {
-                    PromiseResult::Resolve(r, c) => promise_resolve::<R, E, C>(world, id, r, c),
-                    PromiseResult::Rejected(e, c) => promise_reject::<R, E, C>(world, id, e, c),
+                    PromiseResult::Resolve(r, c) => promise_resolve::<R, E, S>(world, id, r, c),
+                    PromiseResult::Rejected(e, c) => promise_reject::<R, E, S>(world, id, e, c),
                     PromiseResult::Await(mut p) => {
-                        if p.resolve.is_some() {
+                        if p.resolve.is_some() || p.resolve_reject.is_some() {
                             error!(
                                 "Misconfigured {}<{}, {}, {}>, resolve already defined",
                                 p.id,
                                 type_name::<R>(),
                                 type_name::<E>(),
-                                type_name::<C>()
+                                type_name::<S>()
                             );
                             return;
                         }
                         p.resolve = Some(Box::new(move |world, r, c| {
-                            promise_resolve::<R, E, C>(world, id, r, c)
+                            promise_resolve::<R, E, S>(world, id, r, c)
                         }));
-                        promise_register::<R, E, C>(world, p);
+                        promise_register::<R, E, S>(world, p);
                     }
                 }
             })),
@@ -253,11 +258,12 @@ impl<R: 'static, E: 'static, C: 'static> Promise<R, E, C> {
         })
     }
 
-    pub fn register<F: 'static + FnOnce(&mut World, PromiseId)>(func: F) -> Promise<R, E, C> {
+    pub fn register<F: 'static + FnOnce(&mut World, PromiseId)>(func: F) -> Promise<R, E, S> {
         Promise {
             id: Self::id(),
             resolve: None,
             reject: None,
+            resolve_reject: None,
             register: Some(Box::new(func)),
         }
     }
@@ -267,17 +273,17 @@ impl<R: 'static, E: 'static, C: 'static> Promise<R, E, C> {
         R2: 'static,
         E2: 'static,
         C2: 'static,
-        F: 'static + IntoSystem<(AsyncState<C>, AsyncValue<R>), PromiseResult<R2, E2, C2>, Params>,
+        F: 'static + IntoSystem<(AsyncState<S>, AsyncValue<R>), PromiseResult<R2, E2, C2>, Params>,
     >(
         mut self,
         func: F,
     ) -> Promise<R2, E2, C2> {
         let id = Self::id();
-        self.resolve = Some(Box::new(move |world, result, context| {
+        self.resolve = Some(Box::new(move |world, result, state| {
             let mut system = IntoSystem::into_system(func);
             system.initialize(world);
             let pr = system.run(
-                (AsyncState(PromiseState::new(context)), AsyncValue(result)),
+                (AsyncState(PromiseState::new(state)), AsyncValue(result)),
                 world,
             );
             system.apply_buffers(world);
@@ -285,7 +291,7 @@ impl<R: 'static, E: 'static, C: 'static> Promise<R, E, C> {
                 PromiseResult::Resolve(r, c) => promise_resolve::<R2, E2, C2>(world, id, r, c),
                 PromiseResult::Rejected(e, c) => promise_reject::<R2, E2, C2>(world, id, e, c),
                 PromiseResult::Await(mut p) => {
-                    if p.resolve.is_some() {
+                    if p.resolve.is_some() || p.resolve_reject.is_some() {
                         error!(
                             "Misconfigured {}<{}, {}>, resolve already defined",
                             p.id,
@@ -297,6 +303,9 @@ impl<R: 'static, E: 'static, C: 'static> Promise<R, E, C> {
                     p.resolve = Some(Box::new(move |world, r, c| {
                         promise_resolve::<R2, E2, C2>(world, id, r, c);
                     }));
+                    p.reject = Some(Box::new(move |world, e, c| {
+                        promise_reject::<R2, E2, C2>(world, id, e, c);
+                    }));
                     promise_register::<R2, E2, C2>(world, p);
                 }
             }
@@ -304,95 +313,80 @@ impl<R: 'static, E: 'static, C: 'static> Promise<R, E, C> {
         Promise {
             id,
             register: Some(Box::new(move |world, _id| {
-                promise_register::<R, E, C>(world, self)
+                promise_register::<R, E, S>(world, self)
             })),
+            resolve_reject: None,
             resolve: None,
             reject: None,
         }
     }
 
-    // pub fn then_catch<
-    //     Params, R2: 'static, E2: 'static,
-    //     FR: 'static + IntoSystem<R, PromiseResult<R2, E2>, Params>,
-    //     FE: 'static + IntoSystem<E, PromiseResult<R2, E2>, Params>,
-    // >
-    // (mut self, resolve: FR, reject: FE) -> Promise<R2, E2> {
-    //     let id = Self::id();
-    //     self.resolve = Some(Box::new(move |world, result| {
-    //         let mut system = IntoSystem::into_system(resolve);
-    //         system.initialize(world);
-    //         let pr = system.run(result, world);
-    //         system.apply_buffers(world);
-    //         match pr {
-    //             PromiseResult::Resolve(r) => {
-    //                 promise_resolve::<R2, E2>(world, id, r)
-    //             },
-    //             PromiseResult::Rejected(e) => promise_reject::<R2, E2>(world, id, e),
-    //             PromiseResult::Await(mut p) => {
-    //                 if p.resolve.is_some() {
-    //                     error!("Misconfigured {}<{}, {}>, resolve already defined", p.id, type_name::<R2>(), type_name::<E2>());
-    //                     return;
-    //                 }
-    //                 p.resolve = Some(Box::new(move |world, r| {
-    //                     promise_resolve::<R2, E2>(world, id, r);
-    //                 }));
-    //                 promise_register::<R2, E2>(world, p);
-    //             }
-    //         }
-    //     }));
-    //     self.reject = Some(Box::new(move |world, error| {
-    //         let mut system = IntoSystem::into_system(reject);
-    //         system.initialize(world);
-    //         let pr = system.run(error, world);
-    //         system.apply_buffers(world);
-    //         match pr {
-    //             PromiseResult::Resolve(r) => {
-    //                 promise_resolve::<R2, E2>(world, id, r)
-    //             },
-    //             PromiseResult::Rejected(e) => promise_reject::<R2, E2>(world, id, e),
-    //             PromiseResult::Await(mut p) => {
-    //                 if p.reject.is_some() {
-    //                     error!("Misconfigured {}<{}, {}>, reject already defined", p.id, type_name::<R2>(), type_name::<E2>());
-    //                     return;
-    //                 }
-    //                 p.resolve = Some(Box::new(move |world, r| {
-    //                     promise_resolve::<R2, E2>(world, id, r);
-    //                 }));
-    //                 p.reject = Some(Box::new(move | world, e| {
-    //                     promise_reject::<R2, E2>(world, id, e);
-    //                 }));
-    //                 promise_register::<R2, E2>(world, p);
-    //             }
-    //         }
-    //     }));
-    //     Promise {
-    //         id,
-    //         register: Some(Box::new(move |world, _id| {
-    //             <World as WorldPromise<R, E>>::register_promise(world, self.id, self);
-    //         })),
-    //         resolve: None,
-    //         reject: None
-    //     }
-    // }
-
+    pub fn then_catch<
+        Params, R2: 'static, E2: 'static, C2: 'static,
+        F: 'static + IntoSystem<(AsyncState<S>, AsyncValue<Result<R, E>>), PromiseResult<R2, E2, C2>, Params>
+    >(
+        mut self, func: F
+    ) -> Promise<R2, E2, C2> {
+        let id = Self::id();
+        self.resolve_reject = Some(Box::new(move |world, result, state| {
+            let mut system = IntoSystem::into_system(func);
+            system.initialize(world);
+            let pr = system.run((AsyncState(PromiseState::new(state)), AsyncValue(result)), world);
+            system.apply_buffers(world);
+            match pr {
+                PromiseResult::Resolve(r, c) => {
+                    promise_resolve::<R2, E2, C2>(world, id, r, c)
+                },
+                PromiseResult::Rejected(e, c) => {
+                    promise_reject::<R2, E2, C2>(world, id, e, c)
+                }
+                PromiseResult::Await(mut p) => {
+                    if p.resolve.is_some() || p.resolve_reject.is_some() || p.reject.is_some() {
+                        error!("Misconfigured {}<{}, {}>, resolve/reject already defined", p.id, type_name::<R2>(), type_name::<E2>());
+                        return;
+                    }
+                    p.resolve = Some(Box::new(move |world, r, c| {
+                        promise_resolve::<R2, E2, C2>(world, id, r, c);
+                    }));
+                    p.reject = Some(Box::new(move |world, e, c| {
+                        promise_reject::<R2, E2, C2>(world, id, e, c);
+                    }));
+                    promise_register::<R2, E2, C2>(world, p);
+                }
+            }
+        }));
+        // self.then(move |In((AsyncState(c), AsyncValue(r)))| {
+        //     PromiseResult::<R, (), C>::Resolve(r, c.0)
+        // })
+        Promise {
+            id,
+            register: Some(Box::new(move |world, _id| {
+                promise_register::<R, E, S>(world, self);
+            })),
+            resolve: None,
+            reject: None,
+            resolve_reject: None,
+        }
+    }
+    
     pub fn catch<
         Params,
-        F: 'static + IntoSystem<(AsyncState<C>, AsyncValue<E>), PromiseResult<R, (), C>, Params>,
+        F: 'static + IntoSystem<(AsyncState<S>, AsyncValue<E>), PromiseResult<R, (), S>, Params>,
     >(
         mut self,
         func: F,
-    ) -> Promise<R, (), C> {
+    ) -> Promise<R, (), S> {
         let id = self.id;
-        self.reject = Some(Box::new(move |world, error, context| {
+        self.reject = Some(Box::new(move |world, error, state| {
             let mut system = IntoSystem::into_system(func);
             system.initialize(world);
             let pr = system.run(
-                (AsyncState(PromiseState(context)), AsyncValue(error)),
+                (AsyncState(PromiseState { value: state }), AsyncValue(error)),
                 world,
             );
             system.apply_buffers(world);
             match pr {
-                PromiseResult::Resolve(r, c) => promise_resolve::<R, E, C>(world, id, r, c),
+                PromiseResult::Resolve(r, c) => promise_resolve::<R, E, S>(world, id, r, c),
                 PromiseResult::Rejected(_, _) => {
                     error!(
                         "Misconfigured {}<{}, {}>: catch exit with empty (dropped) error",
@@ -402,7 +396,7 @@ impl<R: 'static, E: 'static, C: 'static> Promise<R, E, C> {
                     );
                 }
                 PromiseResult::Await(mut p) => {
-                    if p.resolve.is_some() {
+                    if p.resolve.is_some() || p.resolve_reject.is_some() || p.reject.is_some() {
                         error!(
                             "Misconfigured {}<{}, {}>: resolve already defined",
                             id,
@@ -412,13 +406,13 @@ impl<R: 'static, E: 'static, C: 'static> Promise<R, E, C> {
                         return;
                     }
                     p.resolve = Some(Box::new(move |world, r, c| {
-                        promise_resolve::<R, E, C>(world, id, r, c);
+                        promise_resolve::<R, E, S>(world, id, r, c);
                     }));
                 }
             };
         }));
         self.then(move |In((AsyncState(c), AsyncValue(r)))| {
-            PromiseResult::<R, (), C>::Resolve(r, c.0)
+            PromiseResult::<R, (), S>::Resolve(r, c.value)
         })
     }
 }
@@ -450,6 +444,12 @@ impl<R, E> PromiseCommand<R, E> {
             result: Err(error),
         }
     }
+    pub fn result(id: PromiseId, result: Result<R, E>) -> Self {
+        Self {
+            id,
+            result
+        }
+    }
 }
 
 impl<R: 'static + Send + Sync, E: 'static + Send + Sync> Command for PromiseCommand<R, E> {
@@ -461,9 +461,9 @@ impl<R: 'static + Send + Sync, E: 'static + Send + Sync> Command for PromiseComm
     }
 }
 
-impl<R: 'static, E: 'static, C: 'static> Command for Promise<R, E, C> {
+impl<R: 'static, E: 'static, S: 'static> Command for Promise<R, E, S> {
     fn write(self, world: &mut World) {
-        promise_register::<R, E, C>(world, self)
+        promise_register::<R, E, S>(world, self)
     }
 }
 
@@ -477,7 +477,7 @@ pub mod timer {
                 let end = time.elapsed_seconds() + duration - time.delta_seconds();
                 world.resource_mut::<Timers>().push((id, end));
             }))
-            .context(self.0)
+            .with(self.0)
         }
     }
     pub trait TimerOpsExtension<T> {
@@ -508,39 +508,38 @@ pub mod timer {
     }
 }
 
-pub struct PromiseState<C>(pub C);
-impl<C> PromiseState<C> {
-    pub fn new(value: C) -> PromiseState<C> {
-        PromiseState(value)
+pub struct PromiseState<S> {
+    pub value: S
+}
+impl<S> PromiseState<S> {
+    pub fn new(value: S) -> PromiseState<S> {
+        PromiseState { value }
     }
-    pub fn cmd(self) -> AsyncOps<C> {
-        AsyncOps(self.0)
+    pub fn cmd(self) -> AsyncOps<S> {
+        AsyncOps(self.value)
     }
-    pub fn ops(self) -> AsyncOps<C> {
-        AsyncOps(self.0)
+    pub fn ops(self) -> AsyncOps<S> {
+        AsyncOps(self.value)
     }
-    pub fn resolve<R, E>(self, result: R) -> PromiseResult<R, E, C> {
-        PromiseResult::Resolve(result, self.0)
+    pub fn resolve<R, E>(self, result: R) -> PromiseResult<R, E, S> {
+        PromiseResult::Resolve(result, self.value)
     }
-    pub fn ok<R>(self, result: R) -> PromiseResult<R, (), C> {
-        PromiseResult::Resolve(result, self.0)
+    pub fn ok<R>(self, result: R) -> PromiseResult<R, (), S> {
+        PromiseResult::Resolve(result, self.value)
     }
-    pub fn reject<R, E>(self, error: E) -> PromiseResult<R, E, C> {
-        PromiseResult::Rejected(error, self.0)
+    pub fn err<E>(self, error: E) -> PromiseResult<(), E, S> {
+        PromiseResult::Rejected(error, self.value)
     }
-    pub fn get(&self) -> &C {
-        &self.0
+    pub fn reject<R, E>(self, error: E) -> PromiseResult<R, E, S> {
+        PromiseResult::Rejected(error, self.value)
     }
-    pub fn get_mut(&mut self) -> &mut C {
-        &mut self.0
-    }
-    pub fn with<T, F: FnOnce(C) -> T>(self, map: F) -> PromiseState<T> {
-        PromiseState(map(self.0))
+    pub fn with<T, F: FnOnce(S) -> T>(self, map: F) -> PromiseState<T> {
+        PromiseState{ value: map(self.value) }
     }
 }
 
 impl<T: std::fmt::Display> std::fmt::Display for PromiseState<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "PromiseContext({})", self.0)
+        write!(f, "PromiseState({})", self.value)
     }
 }
