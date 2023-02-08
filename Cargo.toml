@@ -3,7 +3,13 @@ name = "bevy_promise"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[workspace]
+members = [
+    "bevy_promise_core",
+    "bevy_promise_macro"
+]
 
 [dependencies]
 bevy = "0.9"
+bevy_promise_macro = { path = "bevy_promise_macro" }
+bevy_promise_core = { path = "bevy_promise_core" }
