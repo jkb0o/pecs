@@ -1,10 +1,9 @@
-use bevy::utils::HashMap;
-use bevy_promise_core::{PromiseId, PromiseCommand, PromiseResult, AsyncOps, Promise};
 use bevy::prelude::*;
-use bevy::tasks::{Task, AsyncComputeTaskPool};
-use futures_lite::future;
+use bevy::tasks::{AsyncComputeTaskPool, Task};
+use bevy::utils::HashMap;
+use bevy_promise_core::{AsyncOps, Promise, PromiseCommand, PromiseId};
 pub use ehttp::Response;
-
+use futures_lite::future;
 
 pub struct PromiseHttpPlugin;
 impl Plugin for PromiseHttpPlugin {
@@ -16,7 +15,7 @@ impl Plugin for PromiseHttpPlugin {
 
 pub struct Request(ehttp::Request);
 impl Request {
-    pub (crate) fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self(ehttp::Request::get(""))
     }
     pub fn url<U: ToString>(mut self, url: U) -> Self {
@@ -35,21 +34,23 @@ impl Request {
         self.0.headers.insert(key.to_string(), value.to_string());
         self
     }
-    pub fn send(self) -> PromiseResult<Response, String, ()> {
-        PromiseResult::Await(Promise::register(|world, id| {
-            info!("reqistering get(google) promise {id}");
-            let task = AsyncComputeTaskPool::get().spawn(async move {
-                ehttp::fetch_blocking(&self.0)
-            });
-            world.resource_mut::<Requests>().insert(id, task);
-        }))
+    pub fn send(self) -> Promise<Response, String, ()> {
+        Promise::register(
+            |world, id| {
+                let task = AsyncComputeTaskPool::get()
+                    .spawn(async move { ehttp::fetch_blocking(&self.0) });
+                world.resource_mut::<Requests>().insert(id, task);
+            },
+            |world, id| {
+                world.resource_mut::<Requests>().remove(&id);
+            },
+        )
     }
 }
 
-
-pub struct RequestWithState<S: 'static>(S, Request);
-impl<S> RequestWithState<S> {
-    pub (crate) fn new(state: S) -> Self {
+pub struct RequestWithState<S: 'static + Send + Sync>(S, Request);
+impl<S: 'static + Send + Sync> RequestWithState<S> {
+    pub(crate) fn new(state: S) -> Self {
         Self(state, Request::new())
     }
     pub fn url<U: ToString>(mut self, url: U) -> Self {
@@ -68,15 +69,15 @@ impl<S> RequestWithState<S> {
         self.1 = self.1.body(body);
         self
     }
-    pub fn send(self) -> PromiseResult<ehttp::Response, String, S> {
-        self.1.send().with(self.0)
+    pub fn send(self) -> Promise<ehttp::Response, String, S> {
+        self.1.send().map_state(move |_| self.0)
+        // PromiseResult::Await(self.1.send()).with(self.0)
     }
 }
 
+pub struct Http<S: 'static + Send + Sync>(S);
 
-pub struct Http<S: 'static>(S);
-
-impl<S> Http<S> {
+impl<S: 'static + Send + Sync> Http<S> {
     pub fn get<U: ToString>(self, url: U) -> RequestWithState<S> {
         RequestWithState::new(self.0).method("GET").url(url)
     }
@@ -86,13 +87,12 @@ impl<S> Http<S> {
     pub fn request<M: ToString, U: ToString>(self, method: M, url: U) -> RequestWithState<S> {
         RequestWithState::new(self.0).method(method).url(url)
     }
-
 }
-pub trait HttpOpsExtension<T: 'static> {
-    fn http(self) -> Http<T>;
+pub trait HttpOpsExtension<S: 'static + Send + Sync> {
+    fn http(self) -> Http<S>;
 }
-impl<T: 'static> HttpOpsExtension<T> for AsyncOps<T> {
-    fn http(self) -> Http<T> {
+impl<S: 'static + Send + Sync> HttpOpsExtension<S> for AsyncOps<S> {
+    fn http(self) -> Http<S> {
         Http(self.0)
     }
 }
@@ -100,10 +100,7 @@ impl<T: 'static> HttpOpsExtension<T> for AsyncOps<T> {
 #[derive(Resource, Deref, DerefMut, Default)]
 pub struct Requests(HashMap<PromiseId, Task<Result<Response, String>>>);
 
-pub fn process_requests(
-    mut requests: ResMut<Requests>,
-    mut commands: Commands,
-) {
+pub fn process_requests(mut requests: ResMut<Requests>, mut commands: Commands) {
     requests.drain_filter(|promise, mut task| {
         if let Some(response) = future::block_on(future::poll_once(&mut task)) {
             commands.add(PromiseCommand::result(*promise, response));

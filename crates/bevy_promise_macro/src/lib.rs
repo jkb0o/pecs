@@ -1,7 +1,7 @@
 extern crate proc_macro;
 use proc_macro2::{Ident, TokenStream, TokenTree};
 use quote::*;
-use syn::{self, ext::IdentExt, token::Comma, Token};
+use syn::{self, ext::IdentExt, token::Comma, Token, Type};
 
 #[proc_macro]
 pub fn promise(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
@@ -11,16 +11,35 @@ pub fn promise(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let state = &promise.state;
     let body = &promise.body;
     let args = &promise.system_args;
+    let in_type = if let Some(state_type) = &promise.state_type {
+        if promise.value.is_some() {
+            quote! { ::bevy::prelude::In<(#core::AsyncState<#state_type>, #core::AsyncValue<_>)> }
+        } else {
+            quote! { ::bevy::prelude::In<#core::AsyncState<#state_type>> }
+        }
+    } else {
+        if promise.value.is_some() {
+            quote! { ::bevy::prelude::In<(#core::AsyncState<_>, #core::AsyncValue<_>)> }
+        } else {
+            quote! { ::bevy::prelude::In<#core::AsyncState<_>> }
+        }
+    };
 
     proc_macro::TokenStream::from(if let Some(value) = &promise.value {
         quote! {
-            |::bevy::prelude::In((#core::AsyncState(mut #state), #core::AsyncValue(#value))), #args| {
+            |::bevy::prelude::In((#core::AsyncState(mut #state), #core::AsyncValue(#value))): #in_type, #args| {
                 #body
             }
         }
+    } else if let Some(default_state) = &promise.default_state {
+        quote! {
+            #core::Promise::new(#default_state, |::bevy::prelude::In(#core::AsyncState(mut #state)): #in_type, #args| {
+                #body
+            })
+        }
     } else {
         quote! {
-            #core::Promise::new(|::bevy::prelude::In(#core::AsyncState(mut #state)), #args| {
+            #core::Promise::new((), move |::bevy::prelude::In(#core::AsyncState(mut #state)): #in_type, #args| {
                 #body
             })
         }
@@ -29,15 +48,31 @@ pub fn promise(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
 struct Promise {
     state: Ident,
+    state_type: Option<Type>,
     value: Option<Ident>,
+    default_state: Option<Ident>,
     system_args: TokenStream,
     body: TokenStream,
 }
 
 impl syn::parse::Parse for Promise {
     fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        let default_state = if input.peek(Ident::peek_any) {
+            let state = Some(input.parse()?);
+            input.parse::<Token![=>]>()?;
+            state
+        } else {
+            None
+        };
+
         input.parse::<Token![|]>()?;
         let state = input.parse::<syn::Ident>()?;
+        let state_type = if input.peek(Token![as]) {
+            input.parse::<Token![as]>()?;
+            Some(input.parse()?)
+        } else {
+            None
+        };
         if input.peek(Comma) {
             input.parse::<Comma>()?;
         }
@@ -75,6 +110,8 @@ impl syn::parse::Parse for Promise {
         let body = input.parse::<TokenStream>()?;
         Ok(Promise {
             state,
+            state_type,
+            default_state,
             value,
             body,
             system_args,
@@ -109,7 +146,9 @@ impl Context {
         let Some(pkg) = pkg.get("name") else { return context };
         let Some(_pkg) = pkg.as_str() else { return context };
         // in future, macro may be used from inside the workspace
-        if false /* pkg.trim() == "bevy_promise_http" */ {
+        if false
+        /* pkg.trim() == "bevy_promise_http" */
+        {
             context.core_path = quote! { ::bevy_promise_core };
         } else {
             context.core_path = quote! { ::bevy_promise::core };

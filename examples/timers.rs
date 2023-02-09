@@ -1,7 +1,7 @@
 use bevy::app::AppExit;
 use bevy::prelude::*;
+use bevy_promise::http::{HttpOpsExtension, Response};
 use bevy_promise::prelude::*;
-use bevy_promise_http::{HttpOpsExtension, Response};
 
 fn main() {
     App::new()
@@ -9,6 +9,24 @@ fn main() {
         .add_plugin(PromisePlugin)
         .add_startup_system(setup)
         .run();
+}
+
+fn log_request(url: &'static str) -> Promise<f32, (), ()> {
+    promise!(url => |s, time: Res<Time>| {
+        let url = s.value;
+        let start = time.elapsed_seconds();
+        info!("Requesting {}", url);
+        let r = s.with(|url| (url, start)).ops().http().get(url).send();
+        r
+    })
+    .then_catch(promise!(|s as (_, _), r, time: Res<Time>| {
+        match r as Result<Response, String> {
+            Ok(r) => info!("{} respond with {}, body size: {}", s.value.0, r.status, r.bytes.len()),
+            Err(e) => warn!("Error requesting {}: {e}", s.value.0)
+        }
+        let duration = time.elapsed_seconds() - s.value.1;
+        s.with(|_|()).ok(duration)
+    }))
 }
 
 fn setup(mut commands: Commands) {
@@ -37,7 +55,7 @@ fn setup(mut commands: Commands) {
         }))
         .then(promise!(|s, r| {
             info!("continue third time with result: {r}");
-            s.ops().timer().delay(1.5).result(r + 1)
+            s.ops().timer().delay(1.5).map(move |_| r + 1)
         }))
         .then(promise!(|s, r| {
             info!("continue after 1.5 sec delay with {r}");
@@ -49,15 +67,23 @@ fn setup(mut commands: Commands) {
             s.ok(())
         }))
         .then(promise!(|s, _| {
-            info!("requesing https://google.com");
-            s.ops().http().get("https://google.com").send()
+            info!("requesing https://bevyengine.org");
+            s.ops().http().get("https://bevyengine.org").send()
         }))
         .then_catch(promise!(|s, r| {
-            match r as Result<Response, String> {
-                Ok(r) => info!("Google respond with {}, body size: {}", r.status, r.bytes.len()),
-                Err(e) => warn!("Error requesting Google: {e}")
+            match r as Result<Response, _> {
+                Ok(r) => info!(
+                    "Bevy respond with {}, body size: {}",
+                    r.status,
+                    r.bytes.len()
+                ),
+                Err(e) => warn!("Error requesting Bevy: {e}"),
             }
-            s.ok(())
+            s.then(log_request("https://google.com".into()))
+                .then(promise!(|s, r| {
+                    info!("Request done in {r} secs");
+                    s.ok(())
+                }))
         }))
         .then(promise!(
             |s, _, time: Res<Time>, mut exit: EventWriter<AppExit>| {

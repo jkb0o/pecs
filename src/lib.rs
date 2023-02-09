@@ -17,5 +17,5 @@ pub mod prelude {
 }
 
 pub use bevy_promise_core as core;
-pub use bevy_promise_core::timer as timer;
+pub use bevy_promise_core::timer;
 pub use bevy_promise_http as http;
