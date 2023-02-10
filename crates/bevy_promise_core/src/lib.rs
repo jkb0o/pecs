@@ -1,34 +1,37 @@
 use std::{
     any::type_name,
     cell::RefCell,
+    marker::PhantomData,
     mem,
+    ops::Deref,
     sync::{Arc, RwLock},
     thread::{self, ThreadId},
 };
 
-use bevy::{ecs::system::Command, prelude::*, utils::HashMap};
+use bevy::{
+    ecs::system::{Command, SystemParam, SystemParamItem},
+    prelude::*,
+    utils::HashMap,
+};
 
 pub struct AsyncOps<T>(pub T);
 pub struct AsyncState<T>(pub PromiseState<T>);
 pub struct AsyncValue<T>(pub T);
 
-pub fn promise_resolve<R: 'static, E: 'static, S: 'static>(
-    world: &mut World,
-    id: PromiseId,
-    result: R,
-    state: S,
-) {
-    // info!("rejecting {id}")
+pub fn promise_resolve<R: 'static, E: 'static, S: 'static>(world: &mut World, id: PromiseId, result: R, state: S) {
+    // info!(
+    //     "resolving {id}<{}, {}, {}>",
+    //     type_name::<R>(),
+    //     type_name::<E>(),
+    //     type_name::<S>(),
+    // );
     let registry = world
         .get_resource_or_insert_with(PromiseRegistry::<R, E, S>::default)
         .clone();
     match {
         let mut write = registry.0.write().unwrap();
         let prom = write.get_mut(&id).unwrap();
-        (
-            mem::take(&mut prom.resolve),
-            mem::take(&mut prom.resolve_reject),
-        )
+        (mem::take(&mut prom.resolve), mem::take(&mut prom.resolve_reject))
     } {
         (Some(resolve), None) => resolve(world, result, state),
         (None, Some(resolve_reject)) => resolve_reject(world, Ok(result), state),
@@ -45,12 +48,8 @@ pub fn promise_resolve<R: 'static, E: 'static, S: 'static>(
     // );
 }
 
-pub fn promise_reject<R: 'static, E: 'static, S: 'static>(
-    world: &mut World,
-    id: PromiseId,
-    error: E,
-    state: S,
-) {
+pub fn promise_reject<R: 'static, E: 'static, S: 'static>(world: &mut World, id: PromiseId, error: E, state: S) {
+    // info!("rejecting {id}");
     let registry = world
         .get_resource_or_insert_with(PromiseRegistry::<R, E, S>::default)
         .clone();
@@ -67,7 +66,12 @@ pub fn promise_reject<R: 'static, E: 'static, S: 'static>(
         (Some(reject), None, _) => reject(world, error, state),
         (None, Some(resolve_reject), _) => resolve_reject(world, Err(error), state),
         (None, None, p) if p => {
-            warn!("Discarding resolve branch of {id}<{}, {}, {}>: missed reject handler while promise rejected.", type_name::<R>(), type_name::<E>(), type_name::<S>());
+            warn!(
+                "Discarding resolve branch of {id}<{}, {}, {}>: missed reject handler while promise rejected.",
+                type_name::<R>(),
+                type_name::<E>(),
+                type_name::<S>()
+            );
             let mut write = registry.0.write().unwrap();
             let prom = write.get_mut(&id).unwrap();
             if let Some(discard) = mem::take(&mut prom.discard) {
@@ -86,10 +90,7 @@ pub fn promise_reject<R: 'static, E: 'static, S: 'static>(
     // );
 }
 
-pub fn promise_register<R: 'static, E: 'static, S: 'static>(
-    world: &mut World,
-    mut promise: Promise<R, E, S>,
-) {
+pub fn promise_register<R: 'static, E: 'static, S: 'static>(world: &mut World, mut promise: Promise<R, E, S>) {
     let id = promise.id;
     // info!("registering {id}");
     let register = promise.register;
@@ -139,6 +140,22 @@ pub fn promise_discard<R: 'static, E: 'static, S: 'static>(world: &mut World, id
     //     type_name::<S>(),
     //     registry.0.read().unwrap().len()
     // );
+}
+
+pub trait PromiseParams: 'static + SystemParam + Send + Sync {}
+impl<T: 'static + SystemParam + Send + Sync> PromiseParams for T {}
+
+pub struct PromiseFunction<Input, Output, Params: PromiseParams> {
+    pub marker: PhantomData<Params>,
+    pub body: fn(In<Input>, SystemParamItem<Params>) -> Output,
+}
+impl<Input, Output, Params: PromiseParams> PromiseFunction<Input, Output, Params> {
+    fn new(body: fn(In<Input>, SystemParamItem<Params>) -> Output) -> Self {
+        PromiseFunction {
+            body,
+            marker: PhantomData,
+        }
+    }
 }
 
 pub struct Promise<R, E, S> {
@@ -200,6 +217,18 @@ pub struct PromiseId {
     thread: ThreadId,
     local: usize,
 }
+impl PromiseId {
+    pub fn new() -> PromiseId {
+        PROMISE_LOCAL_ID.with(|id| {
+            let mut new_id = id.borrow_mut();
+            *new_id += 1;
+            PromiseId {
+                thread: thread::current().id(),
+                local: *new_id,
+            }
+        })
+    }
+}
 
 impl std::fmt::Display for PromiseId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -207,10 +236,7 @@ impl std::fmt::Display for PromiseId {
         write!(
             f,
             "Promise({}:{})",
-            t.strip_prefix("ThreadId(")
-                .unwrap()
-                .strip_suffix(")")
-                .unwrap(),
+            t.strip_prefix("ThreadId(").unwrap().strip_suffix(")").unwrap(),
             self.local
         )
     }
@@ -262,14 +288,9 @@ impl<R: 'static, E: 'static, S: 'static> Promise<R, E, S> {
         })
     }
 
-    pub fn new<
-        Params,
-        D: 'static,
-        P: Into<PromiseResult<R, E, S>>,
-        F: 'static + IntoSystem<AsyncState<D>, P, Params>,
-    >(
+    pub fn new<D: 'static, Params: PromiseParams, P: 'static + Into<PromiseResult<R, E, S>>>(
         default_state: D,
-        func: F,
+        func: PromiseFunction<PromiseState<D>, P, Params>,
     ) -> Promise<R, E, S> {
         let id = Self::id();
         // let default = OnceValue::new(default_state);
@@ -280,11 +301,9 @@ impl<R: 'static, E: 'static, S: 'static> Promise<R, E, S> {
             resolve_reject: None,
             discard: None,
             register: Some(Box::new(move |world, id| {
-                let mut system = IntoSystem::into_system(func);
+                let mut system = IntoSystem::into_system(func.body);
                 system.initialize(world);
-                let pr = system
-                    .run(AsyncState(PromiseState::new(default_state)), world)
-                    .into();
+                let pr = system.run(PromiseState::new(default_state), world).into();
                 system.apply_buffers(world);
                 match pr {
                     PromiseResult::Resolve(r, c) => promise_resolve::<R, E, S>(world, id, r, c),
@@ -300,9 +319,7 @@ impl<R: 'static, E: 'static, S: 'static> Promise<R, E, S> {
                             );
                             return;
                         }
-                        p.resolve = Some(Box::new(move |world, r, c| {
-                            promise_resolve::<R, E, S>(world, id, r, c)
-                        }));
+                        p.resolve = Some(Box::new(move |world, r, c| promise_resolve::<R, E, S>(world, id, r, c)));
                         promise_register::<R, E, S>(world, p);
                     }
                 }
@@ -310,10 +327,7 @@ impl<R: 'static, E: 'static, S: 'static> Promise<R, E, S> {
         }
     }
 
-    pub fn register<
-        F: 'static + FnOnce(&mut World, PromiseId),
-        D: 'static + FnOnce(&mut World, PromiseId),
-    >(
+    pub fn register<F: 'static + FnOnce(&mut World, PromiseId), D: 'static + FnOnce(&mut World, PromiseId)>(
         register: F,
         discard: D,
     ) -> Promise<R, E, S> {
@@ -327,17 +341,16 @@ impl<R: 'static, E: 'static, S: 'static> Promise<R, E, S> {
         }
     }
 
-    pub fn then<
-        Params,
+    pub fn ok_then<
         R2: 'static,
         E2: 'static,
-        C2: 'static,
-        P: Into<PromiseResult<R2, E2, C2>>,
-        F: 'static + IntoSystem<(AsyncState<S>, AsyncValue<R>), P, Params>,
+        S2: 'static,
+        Params: PromiseParams,
+        P: 'static + Into<PromiseResult<R2, E2, S2>>,
     >(
         mut self,
-        func: F,
-    ) -> Promise<R2, E2, C2> {
+        func: PromiseFunction<(PromiseState<S>, R), P, Params>,
+    ) -> Promise<R2, E2, S2> {
         let id = Self::id();
         let discard = mem::take(&mut self.discard);
         let self_id = self.id;
@@ -345,21 +358,16 @@ impl<R: 'static, E: 'static, S: 'static> Promise<R, E, S> {
             if let Some(discard) = discard {
                 discard(world, self_id);
             }
-            promise_discard::<R2, E2, C2>(world, id);
+            promise_discard::<R2, E2, S2>(world, id);
         }));
         self.resolve = Some(Box::new(move |world, result, state| {
-            let mut system = IntoSystem::into_system(func);
+            let mut system = IntoSystem::into_system(func.body);
             system.initialize(world);
-            let pr = system
-                .run(
-                    (AsyncState(PromiseState::new(state)), AsyncValue(result)),
-                    world,
-                )
-                .into();
+            let pr = system.run((PromiseState::new(state), result), world).into();
             system.apply_buffers(world);
             match pr {
-                PromiseResult::Resolve(r, c) => promise_resolve::<R2, E2, C2>(world, id, r, c),
-                PromiseResult::Rejected(e, c) => promise_reject::<R2, E2, C2>(world, id, e, c),
+                PromiseResult::Resolve(r, c) => promise_resolve::<R2, E2, S2>(world, id, r, c),
+                PromiseResult::Rejected(e, c) => promise_reject::<R2, E2, S2>(world, id, e, c),
                 PromiseResult::Await(mut p) => {
                     if p.resolve.is_some() || p.resolve_reject.is_some() {
                         error!(
@@ -371,20 +379,18 @@ impl<R: 'static, E: 'static, S: 'static> Promise<R, E, S> {
                         return;
                     }
                     p.resolve = Some(Box::new(move |world, r, c| {
-                        promise_resolve::<R2, E2, C2>(world, id, r, c);
+                        promise_resolve::<R2, E2, S2>(world, id, r, c);
                     }));
                     p.reject = Some(Box::new(move |world, e, c| {
-                        promise_reject::<R2, E2, C2>(world, id, e, c);
+                        promise_reject::<R2, E2, S2>(world, id, e, c);
                     }));
-                    promise_register::<R2, E2, C2>(world, p);
+                    promise_register::<R2, E2, S2>(world, p);
                 }
             }
         }));
         Promise {
             id,
-            register: Some(Box::new(move |world, _id| {
-                promise_register::<R, E, S>(world, self)
-            })),
+            register: Some(Box::new(move |world, _id| promise_register::<R, E, S>(world, self))),
             discard: None,
             resolve_reject: None,
             resolve: None,
@@ -392,39 +398,30 @@ impl<R: 'static, E: 'static, S: 'static> Promise<R, E, S> {
         }
     }
 
-    pub fn then_catch<
-        Params,
+    pub fn then<
         R2: 'static,
         E2: 'static,
-        C2: 'static,
-        P: Into<PromiseResult<R2, E2, C2>>,
-        F: 'static + IntoSystem<(AsyncState<S>, AsyncValue<Result<R, E>>), P, Params>,
+        S2: 'static,
+        Params: PromiseParams,
+        P: 'static + Into<PromiseResult<R2, E2, S2>>,
     >(
         mut self,
-        func: F,
-    ) -> Promise<R2, E2, C2> {
+        func: PromiseFunction<(PromiseState<S>, Result<R, E>), P, Params>,
+    ) -> Promise<R2, E2, S2> {
         let id = Self::id();
         let discard = mem::take(&mut self.discard);
         let self_id = self.id;
         self.discard = Some(Box::new(move |world, _id| {
-            if let Some(discard) = discard {
-                discard(world, self_id);
-            }
-            promise_discard::<R2, E2, C2>(world, id);
+            promise_discard::<R2, E2, S2>(world, id);
         }));
         self.resolve_reject = Some(Box::new(move |world, result, state| {
-            let mut system = IntoSystem::into_system(func);
+            let mut system = IntoSystem::into_system(func.body);
             system.initialize(world);
-            let pr = system
-                .run(
-                    (AsyncState(PromiseState::new(state)), AsyncValue(result)),
-                    world,
-                )
-                .into();
+            let pr = system.run((PromiseState::new(state), result), world).into();
             system.apply_buffers(world);
             match pr {
-                PromiseResult::Resolve(r, c) => promise_resolve::<R2, E2, C2>(world, id, r, c),
-                PromiseResult::Rejected(e, c) => promise_reject::<R2, E2, C2>(world, id, e, c),
+                PromiseResult::Resolve(r, c) => promise_resolve::<R2, E2, S2>(world, id, r, c),
+                PromiseResult::Rejected(e, c) => promise_reject::<R2, E2, S2>(world, id, e, c),
                 PromiseResult::Await(mut p) => {
                     if p.resolve.is_some() || p.resolve_reject.is_some() || p.reject.is_some() {
                         error!(
@@ -436,12 +433,12 @@ impl<R: 'static, E: 'static, S: 'static> Promise<R, E, S> {
                         return;
                     }
                     p.resolve = Some(Box::new(move |world, r, c| {
-                        promise_resolve::<R2, E2, C2>(world, id, r, c);
+                        promise_resolve::<R2, E2, S2>(world, id, r, c);
                     }));
                     p.reject = Some(Box::new(move |world, e, c| {
-                        promise_reject::<R2, E2, C2>(world, id, e, c);
+                        promise_reject::<R2, E2, S2>(world, id, e, c);
                     }));
-                    promise_register::<R2, E2, C2>(world, p);
+                    promise_register::<R2, E2, S2>(world, p);
                 }
             }
         }));
@@ -453,31 +450,193 @@ impl<R: 'static, E: 'static, S: 'static> Promise<R, E, S> {
             register: Some(Box::new(move |world, _id| {
                 promise_register::<R, E, S>(world, self);
             })),
-            discard: None,
+            discard: Some(Box::new(move |world, _id| {
+                if let Some(discard) = discard {
+                    discard(world, self_id);
+                }
+            })),
             resolve: None,
             reject: None,
             resolve_reject: None,
         }
     }
 
-    pub fn catch<
-        Params,
-        P: Into<PromiseResult<R, (), S>>,
-        F: 'static + IntoSystem<(AsyncState<S>, AsyncValue<E>), P, Params>,
-    >(
+    pub fn map<R2: 'static, F: 'static + FnOnce(R) -> R2>(mut self, map: F) -> Promise<R2, E, S> {
+        let id = Self::id();
+        let discard = mem::take(&mut self.discard);
+        let self_id = self.id;
+        self.discard = Some(Box::new(move |world, _id| {
+            promise_discard::<R2, E, S>(world, id);
+        }));
+        let map = OnceValue::new(map);
+        self.resolve_reject = Some(Box::new(move |world, result, state| {
+            let mut system = IntoSystem::into_system(move |In((s, r)): In<(PromiseState<S>, Result<R, E>)>| match r {
+                Ok(r) => s.resolve(map.get()(r)),
+                Err(e) => s.reject(e),
+            });
+            system.initialize(world);
+            let pr = system.run((PromiseState::new(state), result), world).into();
+            system.apply_buffers(world);
+            match pr {
+                PromiseResult::Resolve(r, c) => promise_resolve::<R2, E, S>(world, id, r, c),
+                PromiseResult::Rejected(e, c) => promise_reject::<R2, E, S>(world, id, e, c),
+                PromiseResult::Await(mut p) => {
+                    if p.resolve.is_some() || p.resolve_reject.is_some() || p.reject.is_some() {
+                        error!(
+                            "Misconfigured {}<{}, {}, {}>, resolve/reject already defined",
+                            p.id,
+                            type_name::<R2>(),
+                            type_name::<E>(),
+                            type_name::<S>(),
+                        );
+                        return;
+                    }
+                    p.resolve = Some(Box::new(move |world, r, c| {
+                        promise_resolve::<R2, E, S>(world, id, r, c);
+                    }));
+                    p.reject = Some(Box::new(move |world, e, c| {
+                        promise_reject::<R2, E, S>(world, id, e, c);
+                    }));
+                    promise_register::<R2, E, S>(world, p);
+                }
+            }
+        }));
+        Promise {
+            id,
+            register: Some(Box::new(move |world, _id| {
+                promise_register::<R, E, S>(world, self);
+            })),
+            discard: Some(Box::new(move |world, _id| {
+                if let Some(discard) = discard {
+                    discard(world, self_id);
+                }
+            })),
+            resolve: None,
+            reject: None,
+            resolve_reject: None,
+        }
+    }
+
+    pub fn map_err<E2: 'static, F: 'static + FnOnce(E) -> E2>(mut self, map: F) -> Promise<R, E2, S> {
+        let id = Self::id();
+        let discard = mem::take(&mut self.discard);
+        let self_id = self.id;
+        self.discard = Some(Box::new(move |world, _id| {
+            promise_discard::<R, E2, S>(world, id);
+        }));
+        let map = OnceValue::new(map);
+        self.resolve_reject = Some(Box::new(move |world, result, state| {
+            let mut system = IntoSystem::into_system(move |In((s, r)): In<(PromiseState<S>, Result<R, E>)>| match r {
+                Ok(r) => s.resolve(r),
+                Err(e) => s.reject(map.get()(e)),
+            });
+            system.initialize(world);
+            let pr = system.run((PromiseState::new(state), result), world).into();
+            system.apply_buffers(world);
+            match pr {
+                PromiseResult::Resolve(r, c) => promise_resolve::<R, E2, S>(world, id, r, c),
+                PromiseResult::Rejected(e, c) => promise_reject::<R, E2, S>(world, id, e, c),
+                PromiseResult::Await(mut p) => {
+                    if p.resolve.is_some() || p.resolve_reject.is_some() || p.reject.is_some() {
+                        error!(
+                            "Misconfigured {}<{}, {}, {}>, resolve/reject already defined",
+                            p.id,
+                            type_name::<R>(),
+                            type_name::<E2>(),
+                            type_name::<S>(),
+                        );
+                        return;
+                    }
+                    p.resolve = Some(Box::new(move |world, r, c| {
+                        promise_resolve::<R, E2, S>(world, id, r, c);
+                    }));
+                    p.reject = Some(Box::new(move |world, e, c| {
+                        promise_reject::<R, E2, S>(world, id, e, c);
+                    }));
+                    promise_register::<R, E2, S>(world, p);
+                }
+            }
+        }));
+        Promise {
+            id,
+            register: Some(Box::new(move |world, _id| {
+                promise_register::<R, E, S>(world, self);
+            })),
+            discard: Some(Box::new(move |world, _id| {
+                if let Some(discard) = discard {
+                    discard(world, self_id);
+                }
+            })),
+            resolve: None,
+            reject: None,
+            resolve_reject: None,
+        }
+    }
+
+    pub fn map_state<S2: 'static, F: 'static + FnOnce(S) -> S2>(mut self, map: F) -> Promise<R, E, S2> {
+        let id = Self::id();
+        let discard = mem::take(&mut self.discard);
+        let self_id = self.id;
+        self.discard = Some(Box::new(move |world, _id| {
+            promise_discard::<R, E, S2>(world, id);
+        }));
+        let map = OnceValue::new(map);
+        self.resolve_reject = Some(Box::new(move |world, result, state| {
+            let mut system = IntoSystem::into_system(move |In((s, r)): In<(PromiseState<S>, Result<R, E>)>| {
+                PromiseState::new(map.get()(s.value)).result(r)
+            });
+            system.initialize(world);
+            let pr = system.run((PromiseState::new(state), result), world).into();
+            system.apply_buffers(world);
+            match pr {
+                PromiseResult::Resolve(r, c) => promise_resolve::<R, E, S2>(world, id, r, c),
+                PromiseResult::Rejected(e, c) => promise_reject::<R, E, S2>(world, id, e, c),
+                PromiseResult::Await(mut p) => {
+                    if p.resolve.is_some() || p.resolve_reject.is_some() || p.reject.is_some() {
+                        error!(
+                            "Misconfigured {}<{}, {}, {}>, resolve/reject already defined",
+                            p.id,
+                            type_name::<R>(),
+                            type_name::<E>(),
+                            type_name::<S2>(),
+                        );
+                        return;
+                    }
+                    p.resolve = Some(Box::new(move |world, r, c| {
+                        promise_resolve::<R, E, S2>(world, id, r, c);
+                    }));
+                    p.reject = Some(Box::new(move |world, e, c| {
+                        promise_reject::<R, E, S2>(world, id, e, c);
+                    }));
+                    promise_register::<R, E, S2>(world, p);
+                }
+            }
+        }));
+        Promise {
+            id,
+            register: Some(Box::new(move |world, _id| {
+                promise_register::<R, E, S>(world, self);
+            })),
+            discard: Some(Box::new(move |world, _id| {
+                if let Some(discard) = discard {
+                    discard(world, self_id);
+                }
+            })),
+            resolve: None,
+            reject: None,
+            resolve_reject: None,
+        }
+    }
+
+    pub fn or_else<Params: PromiseParams, P: 'static + Into<PromiseResult<R, (), S>>>(
         mut self,
-        func: F,
+        func: PromiseFunction<(PromiseState<S>, E), P, Params>,
     ) -> Promise<R, (), S> {
         let id = self.id;
         self.reject = Some(Box::new(move |world, error, state| {
-            let mut system = IntoSystem::into_system(func);
+            let mut system = IntoSystem::into_system(func.body);
             system.initialize(world);
-            let pr = system
-                .run(
-                    (AsyncState(PromiseState { value: state }), AsyncValue(error)),
-                    world,
-                )
-                .into();
+            let pr = system.run((PromiseState::new(state), error), world).into();
             system.apply_buffers(world);
             match pr {
                 PromiseResult::Resolve(r, c) => promise_resolve::<R, E, S>(world, id, r, c),
@@ -505,30 +664,13 @@ impl<R: 'static, E: 'static, S: 'static> Promise<R, E, S> {
                 }
             };
         }));
-        self.then(move |In((AsyncState(c), AsyncValue(r)))| {
+        self.ok_then(PromiseFunction::<_, _, ()>::new(|In((c, r)), ()| {
             PromiseResult::<R, (), S>::Resolve(r, c.value)
-        })
+        }))
     }
 
-    pub fn map_state<S2: 'static, F: 'static + FnOnce(S) -> S2>(self, map: F) -> Promise<R, E, S2> {
-        let map = OnceValue::new(map);
-        self.then_catch(move |In((AsyncState(s), AsyncValue(r)))| {
-            PromiseState::new(map.get()(s.value)).result(r)
-        })
-    }
-    pub fn map<R2: 'static, F: 'static + FnOnce(R) -> R2>(self, map: F) -> Promise<R2, E, S> {
-        let map = OnceValue::new(map);
-        self.then_catch(move |In((AsyncState(s), AsyncValue(r)))| match r {
-            Ok(r) => s.resolve(map.get()(r)),
-            Err(e) => s.reject(e),
-        })
-    }
-    pub fn map_error<E2: 'static, F: 'static + FnOnce(E) -> E2>(self, map: F) -> Promise<R, E2, S> {
-        let map = OnceValue::new(map);
-        self.then_catch(move |In((AsyncState(s), AsyncValue(r)))| match r {
-            Ok(r) => s.resolve(r),
-            Err(e) => s.reject(map.get()(e)),
-        })
+    pub fn returns<R2: 'static>(self, value: R2) -> Promise<R2, E, S> {
+        self.map(|_| value)
     }
 }
 
@@ -539,25 +681,16 @@ pub struct PromiseCommand<R, E> {
 
 impl<R> PromiseCommand<R, ()> {
     pub fn ok(id: PromiseId, result: R) -> Self {
-        PromiseCommand {
-            id,
-            result: Ok(result),
-        }
+        PromiseCommand { id, result: Ok(result) }
     }
 }
 
 impl<R, E> PromiseCommand<R, E> {
     pub fn resolve(id: PromiseId, result: R) -> Self {
-        Self {
-            id,
-            result: Ok(result),
-        }
+        Self { id, result: Ok(result) }
     }
     pub fn reject(id: PromiseId, error: E) -> Self {
-        Self {
-            id,
-            result: Err(error),
-        }
+        Self { id, result: Err(error) }
     }
     pub fn result(id: PromiseId, result: Result<R, E>) -> Self {
         Self { id, result }
@@ -593,18 +726,12 @@ pub mod timer {
             },
         )
     }
-    pub struct Timer<T>(T);
-    impl<T: 'static> Timer<T> {
-        pub fn delay(self, duration: f32) -> Promise<(), (), T> {
-            timeout(duration).map_state(|_| self.0)
-        }
-    }
     pub trait TimerOpsExtension<T> {
-        fn timer(self) -> Timer<T>;
+        fn timeout(self, duration: f32) -> Promise<(), (), T>;
     }
-    impl<T> TimerOpsExtension<T> for AsyncOps<T> {
-        fn timer(self) -> Timer<T> {
-            Timer(self.0)
+    impl<T: 'static> TimerOpsExtension<T> for AsyncOps<T> {
+        fn timeout(self, duration: f32) -> Promise<(), (), T> {
+            timeout(duration).map_state(|_| self.0)
         }
     }
 
@@ -624,6 +751,12 @@ pub mod timer {
     }
 }
 
+impl<T: Clone> Clone for AsyncOps<T> {
+    fn clone(&self) -> Self {
+        AsyncOps(self.0.clone())
+    }
+}
+impl<T: Copy> Copy for AsyncOps<T> {}
 pub struct PromiseState<S> {
     pub value: S,
 }
@@ -634,7 +767,7 @@ impl<S: 'static> PromiseState<S> {
     pub fn cmd(self) -> AsyncOps<S> {
         AsyncOps(self.value)
     }
-    pub fn ops(self) -> AsyncOps<S> {
+    pub fn asyn(self) -> AsyncOps<S> {
         AsyncOps(self.value)
     }
     pub fn resolve<R, E>(self, result: R) -> PromiseResult<R, E, S> {
@@ -656,16 +789,18 @@ impl<S: 'static> PromiseState<S> {
         }
     }
     pub fn with<T, F: FnOnce(S) -> T>(self, map: F) -> PromiseState<T> {
-        PromiseState {
-            value: map(self.value),
-        }
+        PromiseState { value: map(self.value) }
     }
 
-    pub fn then<R: 'static, E: 'static, S2: 'static>(
-        self,
-        promise: Promise<R, E, S2>,
-    ) -> Promise<R, E, S> {
+    pub fn then<R: 'static, E: 'static, S2: 'static>(self, promise: Promise<R, E, S2>) -> Promise<R, E, S> {
         promise.map_state(|_| self.value)
+    }
+
+    pub fn any<A: AnyPromise>(self, any: A) -> Promise<A::Result, (), S> {
+        any.register().map_state(|_| self.value)
+    }
+    pub fn all<A: AllPromise>(self, all: A) -> Promise<A::Result, (), S> {
+        all.register().map_state(|_| self.value)
     }
 }
 
@@ -680,3 +815,192 @@ impl<T: std::fmt::Debug> std::fmt::Debug for PromiseState<T> {
         write!(f, "PromiseState({:?})", self.value)
     }
 }
+
+pub struct MutPtr<T>(*mut T);
+
+impl<T> Clone for MutPtr<T> {
+    fn clone(&self) -> Self {
+        MutPtr(self.0)
+    }
+}
+
+impl<T> MutPtr<T> {
+    pub fn new(value: T) -> MutPtr<T> {
+        let b = Box::new(value);
+        MutPtr(Box::leak(b) as *mut T)
+    }
+    pub fn get(&mut self) -> T {
+        if self.0.is_null() {
+            panic!("Ups.")
+        }
+        let b = unsafe { Box::from_raw(self.0) };
+        self.0 = std::ptr::null_mut();
+        *b
+    }
+    pub fn as_ref(&self) -> &T {
+        if self.0.is_null() {
+            panic!("Ups.");
+        }
+        unsafe { self.0.as_ref().unwrap() }
+    }
+    pub fn is_valid(&self) -> bool {
+        !self.0.is_null()
+    }
+    pub fn map<F: FnOnce(&mut T)>(&mut self, map: F) {
+        if self.0.is_null() {
+            panic!("Ups.");
+        }
+        unsafe {
+            map(self.0.as_mut().unwrap());
+        }
+        // let b = unsafe { Box::from_raw(self.0) };
+        // let b = Box::new(map(*b));
+        // self.0 = Box::leak(b) as *mut T
+    }
+}
+
+pub trait AnyPromise {
+    type Items;
+    type Result: 'static;
+
+    fn register(self) -> Promise<Self::Result, (), ()>;
+}
+
+impl<R0: 'static, R1: 'static, E0: 'static, E1: 'static> AnyPromise for (Promise<R0, E0, ()>, Promise<R1, E1, ()>) {
+    type Items = (PromiseId, PromiseId);
+    type Result = (Option<Result<R0, E0>>, Option<Result<R1, E1>>);
+    fn register(self) -> Promise<Self::Result, (), ()> {
+        let (p0, p1) = self;
+        let (id0, id1) = (p0.id, p1.id);
+        Promise::register(
+            move |world, any_id| {
+                promise_register(
+                    world,
+                    p0.map_state(move |_| (any_id, id1))
+                        .then(PromiseFunction::<_, _, ()>::new(|In((s, r)), ()| {
+                            let (any_id, id1) = s.value.clone();
+                            Promise::<(), (), ()>::register(
+                                move |world, _id| {
+                                    // discard rest promises
+                                    promise_discard::<R1, E1, ()>(world, id1);
+                                    // resolve p0
+                                    promise_resolve::<(Option<Result<R0, E0>>, Option<Result<R1, E1>>), (), ()>(
+                                        world,
+                                        any_id,
+                                        (Some(r), None),
+                                        (),
+                                    );
+                                },
+                                move |_world, _id| {},
+                            )
+                        })),
+                );
+                promise_register(
+                    world,
+                    p1.map_state(move |_| (any_id, id0))
+                        .then(PromiseFunction::<_, _, ()>::new(|In((s, r)), ()| {
+                            let (any_id, id0) = s.value.clone();
+                            Promise::<(), (), ()>::register(
+                                move |world, _id| {
+                                    // discard rest promises
+                                    promise_discard::<R0, E0, ()>(world, id0);
+                                    // resolve p0
+                                    promise_resolve::<(Option<Result<R0, E0>>, Option<Result<R1, E1>>), (), ()>(
+                                        world,
+                                        any_id,
+                                        (None, Some(r)),
+                                        (),
+                                    );
+                                },
+                                move |_world, _id| {},
+                            )
+                        })),
+                );
+            },
+            move |world, _id| {
+                promise_discard::<R0, E0, ()>(world, id0);
+                promise_discard::<R1, E1, ()>(world, id1);
+            },
+        )
+    }
+}
+
+pub trait AllPromise {
+    type Items;
+    type Result: 'static;
+
+    fn register(self) -> Promise<Self::Result, (), ()>;
+}
+
+impl<R0: 'static, R1: 'static, E0: 'static, E1: 'static> AllPromise for (Promise<R0, E0, ()>, Promise<R1, E1, ()>) {
+    type Items = (PromiseId, PromiseId);
+    type Result = (Result<R0, E0>, Result<R1, E1>);
+    fn register(self) -> Promise<Self::Result, (), ()> {
+        let (p0, p1) = self;
+        let (id0, id1) = (p0.id, p1.id);
+        let value0 = MutPtr::<(Option<Result<R0, E0>>, Option<Result<R1, E1>>)>::new((None, None));
+        let value1 = value0.clone();
+
+        Promise::register(
+            move |world, any_id| {
+                promise_register(
+                    world,
+                    p0.map_state(move |_| (value0, any_id))
+                        .then(PromiseFunction::<_, _, ()>::new(|In((s, r)), ()| {
+                            let (mut value, any_id) = s.value.clone();
+                            Promise::<(), (), ()>::register(
+                                move |world, _id| {
+                                    value.map(|(v0, _)| *v0 = Some(r));
+                                    if value.is_valid() && value.as_ref().0.is_some() && value.as_ref().1.is_some() {
+                                        let (v0, v1) = value.get();
+                                        promise_resolve::<(Result<R0, E0>, Result<R1, E1>), (), ()>(
+                                            world,
+                                            any_id,
+                                            (v0.unwrap(), v1.unwrap()),
+                                            (),
+                                        );
+                                    }
+                                    // resolve p0
+                                },
+                                move |_world, _id| {},
+                            )
+                        })),
+                );
+                promise_register(
+                    world,
+                    p1.map_state(move |_| (value1, any_id))
+                        .then(PromiseFunction::<_, _, ()>::new(|In((s, r)), ()| {
+                            let (mut value, any_id) = s.value.clone();
+                            Promise::<(), (), ()>::register(
+                                move |world, _id| {
+                                    value.map(|(_, v1)| *v1 = Some(r));
+                                    if value.is_valid() && value.as_ref().0.is_some() && value.as_ref().1.is_some() {
+                                        let (v0, v1) = value.get();
+                                        promise_resolve::<(Result<R0, E0>, Result<R1, E1>), (), ()>(
+                                            world,
+                                            any_id,
+                                            (v0.unwrap(), v1.unwrap()),
+                                            (),
+                                        );
+                                    }
+                                    // resolve p0
+                                },
+                                move |_world, _id| {},
+                            )
+                        })),
+                );
+            },
+            move |world, id| {
+                promise_discard::<R0, E0, ()>(world, id0);
+                promise_discard::<R1, E1, ()>(world, id1);
+            },
+        )
+    }
+}
+
+#[derive(Resource)]
+struct AnyPromiseResults2<R0, E0, R1, E1>(HashMap<PromiseId, (Option<Result<R0, E0>>, Option<Result<R1, E1>>)>);
+unsafe impl<R0, E0, R1, E1> Send for AnyPromiseResults2<R0, E0, R1, E1> {}
+unsafe impl<R0, E0, R1, E1> Sync for AnyPromiseResults2<R0, E0, R1, E1> {}
+
+pub fn process_any_promise_2<R0, E0, R1, E1>() {}

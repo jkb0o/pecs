@@ -2,7 +2,7 @@ pub mod prelude {
     pub use bevy_promise_core::Promise;
 
     pub use bevy_promise_core::timer::TimerOpsExtension;
-    pub use bevy_promise_macro::promise;
+    pub use bevy_promise_macro::asyn;
 
     use bevy::prelude::*;
     pub struct PromisePlugin;
@@ -13,6 +13,11 @@ pub mod prelude {
 
             app.add_plugin(super::http::PromiseHttpPlugin);
         }
+    }
+
+    pub mod asyn {
+        pub use bevy_promise_core::timer::timeout;
+        pub use bevy_promise_http::asyn as http;
     }
 }
 

@@ -1,57 +1,25 @@
 extern crate proc_macro;
-use proc_macro2::{Ident, TokenStream, TokenTree};
+use proc_macro2::{Ident, TokenStream};
 use quote::*;
-use syn::{self, ext::IdentExt, token::Comma, Token, Type};
+use syn::{
+    self,
+    ext::IdentExt,
+    token::{Colon, Comma},
+    Pat, PatType, Token, Type,
+};
 
 #[proc_macro]
-pub fn promise(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+pub fn asyn(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let ctx = Context::new();
-    let core = ctx.core_path();
     let promise = syn::parse_macro_input!(input as Promise);
-    let state = &promise.state;
-    let body = &promise.body;
-    let args = &promise.system_args;
-    let in_type = if let Some(state_type) = &promise.state_type {
-        if promise.value.is_some() {
-            quote! { ::bevy::prelude::In<(#core::AsyncState<#state_type>, #core::AsyncValue<_>)> }
-        } else {
-            quote! { ::bevy::prelude::In<#core::AsyncState<#state_type>> }
-        }
-    } else {
-        if promise.value.is_some() {
-            quote! { ::bevy::prelude::In<(#core::AsyncState<_>, #core::AsyncValue<_>)> }
-        } else {
-            quote! { ::bevy::prelude::In<#core::AsyncState<_>> }
-        }
-    };
-
-    proc_macro::TokenStream::from(if let Some(value) = &promise.value {
-        quote! {
-            |::bevy::prelude::In((#core::AsyncState(mut #state), #core::AsyncValue(#value))): #in_type, #args| {
-                #body
-            }
-        }
-    } else if let Some(default_state) = &promise.default_state {
-        quote! {
-            #core::Promise::new(#default_state, |::bevy::prelude::In(#core::AsyncState(mut #state)): #in_type, #args| {
-                #body
-            })
-        }
-    } else {
-        quote! {
-            #core::Promise::new((), move |::bevy::prelude::In(#core::AsyncState(mut #state)): #in_type, #args| {
-                #body
-            })
-        }
-    })
+    proc_macro::TokenStream::from(promise.build_function(&ctx))
 }
 
 struct Promise {
     state: Ident,
-    state_type: Option<Type>,
-    value: Option<Ident>,
+    value: Option<Pat>,
     default_state: Option<Ident>,
-    system_args: TokenStream,
+    system_args: Vec<syn::FnArg>,
     body: TokenStream,
 }
 
@@ -67,55 +35,91 @@ impl syn::parse::Parse for Promise {
 
         input.parse::<Token![|]>()?;
         let state = input.parse::<syn::Ident>()?;
-        let state_type = if input.peek(Token![as]) {
-            input.parse::<Token![as]>()?;
-            Some(input.parse()?)
-        } else {
-            None
-        };
         if input.peek(Comma) {
             input.parse::<Comma>()?;
         }
-        let value = if input.peek(Ident::peek_any) && !input.peek2(Token![:]) {
-            let value = if input.peek(Token![_]) {
-                let token = input.parse::<Token![_]>()?;
-                Some(Ident::new("_", token.span))
+        let mut system_args = vec![];
+        let value = if let Ok(pat) = input.parse() {
+            if input.peek(Token![:]) {
+                system_args.push(syn::FnArg::Typed(PatType {
+                    attrs: vec![],
+                    pat: Box::new(pat),
+                    colon_token: input.parse()?,
+                    ty: Box::new(input.parse()?),
+                }));
+                None
             } else {
-                Some(input.parse::<Ident>()?)
-            };
-            if input.peek(Comma) {
-                input.parse::<Comma>()?;
+                Some(pat)
             }
-            value
         } else {
             None
         };
-        let system_args = input.step(|cursor| {
-            let mut rest = *cursor;
-            let mut result = quote! {};
-            while let Some((tt, next)) = rest.token_tree() {
-                match &tt {
-                    TokenTree::Punct(punct) if punct.as_char() == '|' => {
-                        return Ok((result, next));
-                    }
-                    t => {
-                        result = quote! { #result #t };
-                        rest = next;
-                    }
-                }
+        loop {
+            if input.peek(Comma) {
+                input.parse::<Comma>()?;
             }
-            Err(cursor.error("Expected `|` "))
-        })?;
+            if input.peek(Token![|]) {
+                input.parse::<Token![|]>()?;
+                break;
+            }
+            system_args.push(input.parse()?);
+        }
+        // let system_args = input.step(|cursor| {
+        //     let mut rest = *cursor;
+        //     let mut result = quote! {};
+        //     while let Some((tt, next)) = rest.token_tree() {
+        //         match &tt {
+        //             TokenTree::Punct(punct) if punct.as_char() == '|' => {
+        //                 return Ok((result, next));
+        //             }
+        //             t => {
+        //                 result = quote! { #result #t };
+        //                 rest = next;
+        //             }
+        //         }
+        //     }
+        //     Err(cursor.error("Expected `|` "))
+        // })?;
 
         let body = input.parse::<TokenStream>()?;
         Ok(Promise {
             state,
-            state_type,
             default_state,
             value,
             body,
             system_args,
         })
+    }
+}
+
+impl Promise {
+    fn build_function(&self, ctx: &Context) -> TokenStream {
+        let core = ctx.core_path();
+        let mut pats = quote! {};
+        let mut types = quote! {};
+        for arg in self.system_args.iter() {
+            let syn::FnArg::Typed(arg) = arg else {
+                continue;
+            };
+            let pat = arg.pat.as_ref();
+            let typ = arg.ty.as_ref();
+            pats = quote! { #pats #pat, };
+            types = quote! { #types #typ, };
+        }
+        let input = &self.state;
+        let mut input = quote! { #input };
+        if let Some(value) = &self.value {
+            input = quote! { (#input, #value) };
+        }
+        let body = &self.body;
+        quote! {
+            #core::PromiseFunction {
+                marker: ::core::marker::PhantomData::<(#types)>,
+                body: |::bevy::prelude::In(#input), (#pats): (#types)| {
+                    #body
+                }
+            }
+        }
     }
 }
 

@@ -37,8 +37,7 @@ impl Request {
     pub fn send(self) -> Promise<Response, String, ()> {
         Promise::register(
             |world, id| {
-                let task = AsyncComputeTaskPool::get()
-                    .spawn(async move { ehttp::fetch_blocking(&self.0) });
+                let task = AsyncComputeTaskPool::get().spawn(async move { ehttp::fetch_blocking(&self.0) });
                 world.resource_mut::<Requests>().insert(id, task);
             },
             |world, id| {
@@ -48,8 +47,8 @@ impl Request {
     }
 }
 
-pub struct RequestWithState<S: 'static + Send + Sync>(S, Request);
-impl<S: 'static + Send + Sync> RequestWithState<S> {
+pub struct RequestWithState<S>(S, Request);
+impl<S: 'static> RequestWithState<S> {
     pub(crate) fn new(state: S) -> Self {
         Self(state, Request::new())
     }
@@ -75,9 +74,9 @@ impl<S: 'static + Send + Sync> RequestWithState<S> {
     }
 }
 
-pub struct Http<S: 'static + Send + Sync>(S);
+pub struct Http<S>(S);
 
-impl<S: 'static + Send + Sync> Http<S> {
+impl<S: 'static> Http<S> {
     pub fn get<U: ToString>(self, url: U) -> RequestWithState<S> {
         RequestWithState::new(self.0).method("GET").url(url)
     }
@@ -88,10 +87,10 @@ impl<S: 'static + Send + Sync> Http<S> {
         RequestWithState::new(self.0).method(method).url(url)
     }
 }
-pub trait HttpOpsExtension<S: 'static + Send + Sync> {
+pub trait HttpOpsExtension<S> {
     fn http(self) -> Http<S>;
 }
-impl<S: 'static + Send + Sync> HttpOpsExtension<S> for AsyncOps<S> {
+impl<S> HttpOpsExtension<S> for AsyncOps<S> {
     fn http(self) -> Http<S> {
         Http(self.0)
     }
@@ -111,7 +110,7 @@ pub fn process_requests(mut requests: ResMut<Requests>, mut commands: Commands) 
     });
 }
 
-pub mod request {
+pub mod asyn {
     pub fn get<T: ToString>(url: T) -> super::Request {
         super::Request::new().method("GET").url(url)
     }

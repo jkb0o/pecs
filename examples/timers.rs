@@ -1,6 +1,6 @@
 use bevy::app::AppExit;
 use bevy::prelude::*;
-use bevy_promise::http::{HttpOpsExtension, Response};
+use bevy_promise::http::HttpOpsExtension;
 use bevy_promise::prelude::*;
 
 fn main() {
@@ -11,37 +11,43 @@ fn main() {
         .run();
 }
 
-fn log_request(url: &'static str) -> Promise<f32, (), ()> {
-    promise!(url => |s, time: Res<Time>| {
-        let url = s.value;
-        let start = time.elapsed_seconds();
-        info!("Requesting {}", url);
-        let r = s.with(|url| (url, start)).ops().http().get(url).send();
-        r
-    })
-    .then_catch(promise!(|s as (_, _), r, time: Res<Time>| {
-        match r as Result<Response, String> {
+fn log_request<Str: 'static + ToString + std::fmt::Display>(url: Str) -> Promise<f32, (), ()> {
+    Promise::new(
+        url,
+        asyn!(|s, time: Res<Time>| {
+            let url = s.value.to_string();
+            let start = time.elapsed_seconds();
+            info!("Requesting {}", url);
+            let r = s.with(|url| (url, start)).asyn().http().get(url).send();
+            r
+        }),
+    )
+    .then(asyn!(|s, r, time: Res<Time>| {
+        match r {
             Ok(r) => info!("{} respond with {}, body size: {}", s.value.0, r.status, r.bytes.len()),
-            Err(e) => warn!("Error requesting {}: {e}", s.value.0)
+            Err(e) => warn!("Error requesting {}: {e}", s.value.0),
         }
         let duration = time.elapsed_seconds() - s.value.1;
-        s.with(|_|()).ok(duration)
+        s.with(|_| ()).ok(duration)
     }))
 }
 
 fn setup(mut commands: Commands) {
     commands.spawn(Camera2dBundle::default());
     commands.add(
-        promise!(|s, time: Res<Time>| {
-            let t = time.elapsed_seconds();
-            info!("start with 31, started at {t}, start time stored in state.");
-            s.with(|_| t).ok(31)
-        })
-        .then(promise!(|s, r| {
+        Promise::new(
+            (),
+            asyn!(|s, time: Res<Time>| {
+                let t = time.elapsed_seconds();
+                info!("start with 31, started at {t}, start time stored in state.");
+                s.with(|_| t).ok(31)
+            }),
+        )
+        .ok_then(asyn!(|s, r| {
             info!("Continue first time with result: {r}, incrementing");
             s.ok(r + 1)
         }))
-        .then(promise!(|s, r| {
+        .ok_then(asyn!(|s, r| {
             info!("Continue second time with result: {r}");
             if r > 31 {
                 s.reject(format!("{r} actually more then 4-bit"))
@@ -49,52 +55,96 @@ fn setup(mut commands: Commands) {
                 s.resolve(r + 1)
             }
         }))
-        .catch(promise!(|s, e| {
+        .or_else(asyn!(|s, e| {
             info!("Looks like smth wrong: {e}");
             s.ok(31)
         }))
-        .then(promise!(|s, r| {
+        .ok_then(asyn!(|s, r| {
             info!("continue third time with result: {r}");
-            s.ops().timer().delay(1.5).map(move |_| r + 1)
+            s.asyn().timeout(1.5).returns(r + 1)
         }))
-        .then(promise!(|s, r| {
+        .ok_then(asyn!(|s, r| {
             info!("continue after 1.5 sec delay with {r}");
-            s.ops().timer().delay(1.5)
+            s.asyn().timeout(1.5)
         }))
-        .then(promise!(|s, _, mut commands: Commands| {
+        .ok_then(asyn!(|s, _, mut commands: Commands| {
             info!("complete after 1.5 sec delay, adding custom command");
             commands.add(|_: &mut World| info!("Executing custom command at the end."));
+            let timeout = rand();
+            info!("Requesting https:://google.com with timeout {timeout:0.2}s");
+            s.any((
+                // wait for first completed promise
+                asyn::timeout(timeout),
+                asyn::http::get("https://google.com").send(),
+            ))
+        }))
+        .ok_then(asyn!(|s, (timeout, response)| {
+            if timeout.is_some() {
+                info!("Request timed out");
+            } else {
+                match response.unwrap() {
+                    Ok(r) => info!("Respond faster then timeout with {}", r.status),
+                    Err(e) => info!("Respond faster then timeout with error: {e}"),
+                }
+            }
             s.ok(())
         }))
-        .then(promise!(|s, _| {
-            info!("requesing https://bevyengine.org");
-            s.ops().http().get("https://bevyengine.org").send()
+        .ok_then(asyn!(|s, _| {
+            s.all((
+                asyn::http::get("https://google.com").send(),
+                asyn::http::get("https://bevyengine.org").send(),
+            ))
         }))
-        .then_catch(promise!(|s, r| {
-            match r as Result<Response, _> {
-                Ok(r) => info!(
-                    "Bevy respond with {}, body size: {}",
-                    r.status,
-                    r.bytes.len()
-                ),
+        .ok_then(asyn!(|s, r| {
+            let (google, bevy) = r;
+            if let Ok(google) = google {
+                info!("Google respond with {}", google.status);
+            } else {
+                info!("Google respond error");
+            }
+            if let Ok(bevy) = bevy {
+                info!("Bevy respond with {}", bevy.status);
+            } else {
+                info!("Bevy respond error");
+            }
+            s.ok(())
+        }))
+        .ok_then(asyn!(|s, _| {
+            info!("requesing https://bevyengine.org");
+            s.asyn().http().get("https://bevyengine.org").send()
+        }))
+        .then(asyn!(|s, r| {
+            match r {
+                Ok(r) => info!("Bevy respond with {}, body size: {}", r.status, r.bytes.len()),
                 Err(e) => warn!("Error requesting Bevy: {e}"),
             }
-            s.then(log_request("https://google.com".into()))
-                .then(promise!(|s, r| {
-                    info!("Request done in {r} secs");
-                    s.ok(())
-                }))
-        }))
-        .then(promise!(
-            |s, _, time: Res<Time>, mut exit: EventWriter<AppExit>| {
-                info!(
-                    "Done, time to process: {} (start time took from state {}",
-                    time.elapsed_seconds() - s.value,
-                    s
-                );
-                exit.send(AppExit);
+            s.then(log_request("https://google.com")).ok_then(asyn!(|s, r| {
+                info!("Request done in {r} secs");
                 s.ok(())
-            }
-        )),
+            }))
+        }))
+        .ok_then(asyn!(|s, _, time: Res<Time>, mut exit: EventWriter<AppExit>| {
+            info!(
+                "Done, time to process: {} (start time took from state {}",
+                time.elapsed_seconds() - s.value,
+                s
+            );
+            exit.send(AppExit);
+            s.ok(())
+        })),
     );
+}
+
+// almost implemeted by chatgpt
+pub fn rand() -> f32 {
+    use std::hash::{Hash, Hasher};
+    let epoch = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let pid = std::process::id();
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    (epoch, pid).hash(&mut hasher);
+    let seed = hasher.finish() as u64;
+    (seed as f32) / u64::MAX as f32
 }
