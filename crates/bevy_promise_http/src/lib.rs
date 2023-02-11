@@ -1,7 +1,8 @@
+//! Make `http` requests asyncroniusly via [`ehttp`](https://docs.rs/ehttp/)
 use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task};
 use bevy::utils::HashMap;
-use bevy_promise_core::{AsyncOps, Promise, PromiseCommand, PromiseId};
+use bevy_promise_core::{AsyncOps, Promise, PromiseCommand, PromiseId, PromiseResult};
 pub use ehttp::Response;
 use futures_lite::future;
 
@@ -47,8 +48,8 @@ impl Request {
     }
 }
 
-pub struct RequestWithState<S>(S, Request);
-impl<S: 'static> RequestWithState<S> {
+pub struct StatefulRequest<S>(S, Request);
+impl<S: 'static> StatefulRequest<S> {
     pub(crate) fn new(state: S) -> Self {
         Self(state, Request::new())
     }
@@ -69,7 +70,7 @@ impl<S: 'static> RequestWithState<S> {
         self
     }
     pub fn send(self) -> Promise<ehttp::Response, String, S> {
-        self.1.send().map_state(move |_| self.0)
+        self.1.send().map(move |_| self.0)
         // PromiseResult::Await(self.1.send()).with(self.0)
     }
 }
@@ -77,14 +78,14 @@ impl<S: 'static> RequestWithState<S> {
 pub struct Http<S>(S);
 
 impl<S: 'static> Http<S> {
-    pub fn get<U: ToString>(self, url: U) -> RequestWithState<S> {
-        RequestWithState::new(self.0).method("GET").url(url)
+    pub fn get<U: ToString>(self, url: U) -> StatefulRequest<S> {
+        StatefulRequest::new(self.0).method("GET").url(url)
     }
-    pub fn post<U: ToString>(self, url: U) -> RequestWithState<S> {
-        RequestWithState::new(self.0).method("POST").url(url)
+    pub fn post<U: ToString>(self, url: U) -> StatefulRequest<S> {
+        StatefulRequest::new(self.0).method("POST").url(url)
     }
-    pub fn request<M: ToString, U: ToString>(self, method: M, url: U) -> RequestWithState<S> {
-        RequestWithState::new(self.0).method(method).url(url)
+    pub fn request<M: ToString, U: ToString>(self, method: M, url: U) -> StatefulRequest<S> {
+        StatefulRequest::new(self.0).method(method).url(url)
     }
 }
 pub trait HttpOpsExtension<S> {
@@ -108,6 +109,18 @@ pub fn process_requests(mut requests: ResMut<Requests>, mut commands: Commands) 
             false
         }
     });
+}
+
+impl From<Request> for PromiseResult<Response, String, ()> {
+    fn from(value: Request) -> Self {
+        PromiseResult::Await(value.send())
+    }
+}
+
+impl<S: 'static> From<StatefulRequest<S>> for PromiseResult<Response, String, S> {
+    fn from(value: StatefulRequest<S>) -> Self {
+        PromiseResult::Await(value.send())
+    }
 }
 
 pub mod asyn {

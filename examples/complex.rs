@@ -1,6 +1,5 @@
 use bevy::app::AppExit;
 use bevy::prelude::*;
-use bevy_promise::http::HttpOpsExtension;
 use bevy_promise::prelude::*;
 use bevy_promise_core::PromisesExtension;
 
@@ -12,40 +11,19 @@ fn main() {
         .run();
 }
 
-fn log_request(url: &'static str) -> Promise<f32, (), ()> {
-    Promise::new(
-        url,
-        asyn!(|s, time: Res<Time>| {
-            let url = s.value;
-            let start = time.elapsed_seconds();
-            info!("Requesting {url} at {start:0.2}");
-            let r = s.with(|url| (url, start)).asyn().http().get(url).send();
-            r
-        }),
-    )
-    .then(asyn!(|s, r, time: Res<Time>| {
-        match r {
-            Ok(r) => info!("{} respond with {}, body size: {}", s.value.0, r.status, r.bytes.len()),
-            Err(e) => warn!("Error requesting {}: {e}", s.value.0),
-        }
-        let duration = time.elapsed_seconds() - s.value.1;
-        s.with(|_| ()).ok(duration)
-    }))
-}
-
 fn setup(mut commands: Commands) {
     commands.spawn(Camera2dBundle::default());
     commands.add(
-        Promise::start(asyn!(|s, time: Res<Time>| {
+        Promise::start(asyn!(s, time: Res<Time> => {
             let t = time.elapsed_seconds();
             info!("start with 31, started at {t}, start time stored in state.");
-            s.with(|_| t).ok(31)
+            s.map(|_| t).ok(31)
         }))
-        .ok_then(asyn!(|s, r| {
+        .ok_then(asyn!(s, r => {
             info!("Continue first time with result: {r}, incrementing");
             s.ok(r + 1)
         }))
-        .ok_then(asyn!(|s, r| {
+        .ok_then(asyn!(s, r => {
             info!("Continue second time with result: {r}");
             if r > 31 {
                 s.reject(format!("{r} actually more then 4-bit"))
@@ -53,19 +31,19 @@ fn setup(mut commands: Commands) {
                 s.resolve(r + 1)
             }
         }))
-        .or_else(asyn!(|s, e| {
+        .or_else(asyn!(s, e => {
             info!("Looks like smth wrong: {e}");
             s.ok(31)
         }))
-        .ok_then(asyn!(|s, r| {
+        .ok_then(asyn!(s, r => {
             info!("continue third time with result: {r}");
-            s.asyn().timeout(1.5).returns(r + 1)
+            s.asyn().timeout(1.5).with_ok(r + 1)
         }))
-        .ok_then(asyn!(|s, r| {
+        .ok_then(asyn!(s, r => {
             info!("continue after 1.5 sec delay with {r}");
             s.asyn().timeout(1.5)
         }))
-        .ok_then(asyn!(|s, _, mut commands: Commands| {
+        .ok_then(asyn!(s, _, mut commands: Commands => {
             info!("complete after 1.5 sec delay, adding custom command");
             commands.add(|_: &mut World| info!("Executing custom command at the end."));
             let timeout = rand();
@@ -76,7 +54,7 @@ fn setup(mut commands: Commands) {
                 asyn::http::get("https://google.com").send(),
             ))
         }))
-        .ok_then(asyn!(|s, (timeout, response)| {
+        .ok_then(asyn!(s, (timeout, response) => {
             if timeout.is_some() {
                 info!("Request timed out");
             } else {
@@ -87,13 +65,13 @@ fn setup(mut commands: Commands) {
             }
             s.ok(())
         }))
-        .ok_then(asyn!(|s, _| {
+        .ok_then(asyn!(s, _ => {
             s.all((
-                asyn::http::get("https://google.com").send().log("google"),
-                asyn::http::get("https://bevyengine.org").send().log("bevy"),
+                asyn::http::get("https://google.com").send(),
+                asyn::http::get("https://bevyengine.org").send(),
             ))
         }))
-        .ok_then(asyn!(|s, r| {
+        .ok_then(asyn!(s, r => {
             let (google, bevy) = r;
             if let Ok(google) = google {
                 info!("Google respond with {}", google.status);
@@ -107,19 +85,19 @@ fn setup(mut commands: Commands) {
             }
             s.ok(())
         }))
-        .ok_then(asyn!(|s, _| {
+        .ok_then(asyn!(s, _ => {
             info!("Requesting any");
             ["https://google.com", "https://bevyengine.org", "https://github.com"]
                 .iter()
                 .map(|url| {
                     info!("  {url}");
-                    asyn::http::get(url).send().with_state(*url)
+                    asyn::http::get(url).send().with(*url)
                 })
                 .promise()
                 .any()
-                .with_state(s.value)
+                .with(s.value)
         }))
-        .ok_then(asyn!(|s, (url, result)| {
+        .ok_then(asyn!(s, (url, result) => {
             let resp = match result {
                 Ok(r) => format!("{}", r.status),
                 Err(e) => e,
@@ -127,7 +105,7 @@ fn setup(mut commands: Commands) {
             info!("{url} respond faster then others with {resp}");
             s.ok(())
         }))
-        .ok_then(asyn!(|s, _| {
+        .ok_then(asyn!(s, _ => {
             info!("Requesting all");
             ["https://google.com", "https://bevyengine.org", "https://github.com"]
                 .iter()
@@ -135,12 +113,12 @@ fn setup(mut commands: Commands) {
                     info!("  {url}");
                     url
                 })
-                .map(|url| asyn::http::get(url).send().with_state(*url))
+                .map(|url| asyn::http::get(url).send().with(*url))
                 .promise()
                 .all()
-                .with_state(s.value)
+                .with(s.value)
         }))
-        .ok_then(asyn!(|s, r| {
+        .ok_then(asyn!(s, r => {
             info!("Services responded:");
             for r in r.iter() {
                 match r {
@@ -150,11 +128,11 @@ fn setup(mut commands: Commands) {
             }
             s.ok(())
         }))
-        .ok_then(asyn!(|s, _| {
+        .ok_then(asyn!(s, _ => {
             info!("requesing https://bevyengine.org");
-            s.asyn().http().get("https://bevyengine.org").send()
+            s.asyn().http().get("https://bevyengine.org")
         }))
-        .then(asyn!(|s, r| {
+        .then(asyn!(s, r => {
             match r {
                 Ok(r) => info!("Bevy respond with {}, body size: {}", r.status, r.bytes.len()),
                 Err(e) => warn!("Error requesting Bevy: {e}"),
@@ -164,7 +142,7 @@ fn setup(mut commands: Commands) {
                 s.ok(())
             }))
         }))
-        .ok_then(asyn!(|s, _, time: Res<Time>, mut exit: EventWriter<AppExit>| {
+        .ok_then(asyn!(s, _, time: Res<Time>, mut exit: EventWriter<AppExit> => {
             info!(
                 "Done, time to process: {} (start time took from state {}",
                 time.elapsed_seconds() - s.value,
@@ -174,6 +152,28 @@ fn setup(mut commands: Commands) {
             s.ok(())
         })),
     );
+}
+
+/// Returns a promise that requests `url`, logs the process
+/// and resolves with seconds spent to complete requests as `f32`
+fn log_request(url: &'static str) -> Promise<f32, (), ()> {
+    Promise::new(
+        url,
+        asyn!(|s, time: Res<Time>| {
+            let url = s.value;
+            let start = time.elapsed_seconds();
+            info!("Requesting {url} at {start:0.2}");
+            s.map(|url| (url, start)).asyn().http().get(url)
+        }),
+    )
+    .then(asyn!(|s, r, time: Res<Time>| {
+        match r {
+            Ok(r) => info!("{} respond with {}, body size: {}", s.value.0, r.status, r.bytes.len()),
+            Err(e) => warn!("Error requesting {}: {e}", s.value.0),
+        }
+        let duration = time.elapsed_seconds() - s.value.1;
+        s.map(|_| ()).ok(duration)
+    }))
 }
 
 // almost implemeted by chatgpt
@@ -188,30 +188,4 @@ pub fn rand() -> f32 {
     (epoch, pid).hash(&mut hasher);
     let seed = hasher.finish() as u64;
     (seed as f32) / u64::MAX as f32
-}
-
-pub trait LogExt<R: 'static, E: 'static, S: 'static> {
-    fn log<T: ToString>(self, label: T) -> Promise<R, E, S>;
-}
-
-impl<R: 'static, E: 'static, S: 'static> LogExt<R, E, S> for Promise<R, E, S> {
-    fn log<T: ToString>(self, label: T) -> Promise<R, E, S> {
-        let label = label.to_string();
-        Promise::new(
-            (self, label),
-            asyn!(|s, time: Res<Time>| {
-                let start = time.elapsed_seconds();
-                let promise = s.value.0;
-                let label = s.value.1;
-                promise
-                    .map_state(move |s| (start, label, s))
-                    .then(asyn!(|s, r, time: Res<Time>| {
-                        let started_at = s.value.0;
-                        let label = &s.value.1;
-                        info!("{label} complete in {:0.2}", time.elapsed_seconds() - started_at);
-                        s.with(|(_, _, state)| state).result(r)
-                    }))
-            }),
-        )
-    }
 }

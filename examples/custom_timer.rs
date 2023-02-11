@@ -1,0 +1,70 @@
+use bevy::prelude::*;
+use bevy_promise::prelude::*;
+fn main() {
+    App::new()
+        .add_plugins(DefaultPlugins)
+        .add_plugin(PromisePlugin)
+        .add_system(process_timers_system)
+        .add_startup_system(setup)
+        .run();
+}
+
+#[derive(Component)]
+/// Holds PromiseId and the time when the timer should time out.
+pub struct MyTimer(PromiseId, f32);
+
+/// creates promise that will resolve after [`duration`] seconds
+pub fn delay(duration: f32) -> Promise<(), (), ()> {
+    Promise::register(
+        // this will be invoket when promise's turn comes
+        move |world, id| {
+            let now = world.resource::<Time>().elapsed_seconds();
+            // store timer
+            world.spawn(MyTimer(id, now + duration));
+        },
+        // this will be invoked when promise got discarded
+        move |world, id| {
+            let entity = {
+                let mut timers = world.query::<(Entity, &MyTimer)>();
+                timers
+                    .iter(world)
+                    .filter(|(_entity, timer)| timer.0 == id)
+                    .map(|(entity, _timer)| entity)
+                    .next()
+            };
+            if let Some(entity) = entity {
+                world.despawn(entity);
+            }
+        },
+    )
+}
+
+/// iterate ofver all timers and resolves completed
+pub fn process_timers_system(timers: Query<(Entity, &MyTimer)>, mut commands: Commands, time: Res<Time>) {
+    let now = time.elapsed_seconds();
+    for (entity, timer) in timers.iter().filter(|(_, t)| t.1 < now) {
+        let promise_id = timer.0;
+        commands.promise(promise_id).ok(());
+        commands.entity(entity).despawn();
+    }
+}
+
+fn setup(mut commands: Commands) {
+    // `delay()` can be called from inside promise
+    commands.add(
+        Promise::start(asyn!(_state => {
+            info!("Starting");
+            delay(1.)
+        }))
+        .then(asyn!(s, _ => {
+            info!("Completing");
+            s.done()
+        })),
+    );
+
+    // or queued directly to Commands
+    commands.add(delay(2.).then(asyn!(s, _ => {
+        info!("I'm another timer");
+        s.done()
+    })));
+}

@@ -1,13 +1,15 @@
 extern crate proc_macro;
-use proc_macro2::{Ident, TokenStream};
+use proc_macro2::TokenStream;
 use quote::*;
 use std::str::FromStr;
 use syn::{self, token::Comma, LitInt, Pat, PatType, Token};
 
 #[proc_macro]
+/// Turns system-like expresion into
+/// [`AsynFunction`](https://docs.rs/bevy_promise/latest/bevy_promise/struct.AsynFunction.html))
 pub fn asyn(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let ctx = Context::new();
-    let promise = syn::parse_macro_input!(input as Promise);
+    let promise = syn::parse_macro_input!(input as Asyn);
     proc_macro::TokenStream::from(promise.build_function(&ctx))
 }
 
@@ -31,17 +33,39 @@ pub fn impl_all_promises(input: proc_macro::TokenStream) -> proc_macro::TokenStr
     proc_macro::TokenStream::from(impl_all_promises_internal(num))
 }
 
-struct Promise {
-    state: Ident,
+struct Asyn {
+    state: Pat,
     value: Option<Pat>,
     system_args: Vec<syn::FnArg>,
     body: TokenStream,
 }
 
-impl syn::parse::Parse for Promise {
-    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
-        input.parse::<Token![|]>()?;
-        let state = input.parse::<syn::Ident>()?;
+fn closes_with_line(i: &mut syn::parse::ParseStream) -> syn::Result<bool> {
+    if i.peek(Token![|]) {
+        i.parse::<Token![|]>()?;
+        Ok(true)
+    } else {
+        Ok(false)
+    }
+}
+fn closes_with_arrow(i: &mut syn::parse::ParseStream) -> syn::Result<bool> {
+    if i.peek(Token![=>]) {
+        i.parse::<Token![=>]>()?;
+        Ok(true)
+    } else {
+        Ok(false)
+    }
+}
+
+impl syn::parse::Parse for Asyn {
+    fn parse(mut input: syn::parse::ParseStream) -> syn::Result<Self> {
+        let closes = if input.peek(Token![|]) {
+            input.parse::<Token![|]>()?;
+            closes_with_line
+        } else {
+            closes_with_arrow
+        };
+        let state = input.parse::<syn::Pat>()?;
         if input.peek(Comma) {
             input.parse::<Comma>()?;
         }
@@ -65,31 +89,14 @@ impl syn::parse::Parse for Promise {
             if input.peek(Comma) {
                 input.parse::<Comma>()?;
             }
-            if input.peek(Token![|]) {
-                input.parse::<Token![|]>()?;
+            if closes(&mut input)? {
                 break;
             }
             system_args.push(input.parse()?);
         }
-        // let system_args = input.step(|cursor| {
-        //     let mut rest = *cursor;
-        //     let mut result = quote! {};
-        //     while let Some((tt, next)) = rest.token_tree() {
-        //         match &tt {
-        //             TokenTree::Punct(punct) if punct.as_char() == '|' => {
-        //                 return Ok((result, next));
-        //             }
-        //             t => {
-        //                 result = quote! { #result #t };
-        //                 rest = next;
-        //             }
-        //         }
-        //     }
-        //     Err(cursor.error("Expected `|` "))
-        // })?;
 
         let body = input.parse::<TokenStream>()?;
-        Ok(Promise {
+        Ok(Asyn {
             state,
             value,
             body,
@@ -98,7 +105,7 @@ impl syn::parse::Parse for Promise {
     }
 }
 
-impl Promise {
+impl Asyn {
     fn build_function(&self, ctx: &Context) -> TokenStream {
         let core = ctx.core_path();
         let mut pats = quote! {};
@@ -119,7 +126,7 @@ impl Promise {
         }
         let body = &self.body;
         quote! {
-            #core::PromiseFunction {
+            #core::AsynFunction {
                 marker: ::core::marker::PhantomData::<(#types)>,
                 body: |::bevy::prelude::In(#input), (#pats): (#types)| {
                     #body
@@ -194,7 +201,7 @@ fn impl_any_promises_internal(elements: u8) -> TokenStream {
 //                 promise_register(
 //                     world,
 //                     p0.map_state(move |_| (any_id, id1))
-//                         .then(PromiseFunction::<_, _, ()>::new(|In((s, r)), ()| {
+//                         .then(AsynFunction::<_, _, ()>::new(|In((s, r)), ()| {
 //                             let (any_id, id1) = s.value.clone();
 //                             Promise::<(), (), ()>::register(
 //                                 move |world, _id| {
@@ -215,7 +222,7 @@ fn impl_any_promises_internal(elements: u8) -> TokenStream {
 //                 promise_register(
 //                     world,
 //                     p1.map_state(move |_| (any_id, id0))
-//                         .then(PromiseFunction::<_, _, ()>::new(|In((s, r)), ()| {
+//                         .then(AsynFunction::<_, _, ()>::new(|In((s, r)), ()| {
 //                             let (any_id, id0) = s.value.clone();
 //                             Promise::<(), (), ()>::register(
 //                                 move |world, _id| {
@@ -292,8 +299,8 @@ fn impl_any_promises_internal_for(elements: u8) -> TokenStream {
         }
         register = quote! {
             #register
-            promise_register(world, #p.map_state(move |_| (any_id, #promise_id_targets))
-                .then(PromiseFunction::<_, _, ()>::new(|In((s, r)), ()| {
+            promise_register(world, #p.map(move |_| (any_id, #promise_id_targets))
+                .then(AsynFunction::<_, _, ()>::new(|In((s, r)), ()| {
                     let (any_id, #promise_id_targets) = s.value.clone();
                     Promise::<(), (), ()>::register(
                         move |world, _id| {
@@ -358,7 +365,7 @@ fn impl_all_promises_internal(elements: u8) -> TokenStream {
 //                 promise_register(
 //                     world,
 //                     p0.map_state(move |_| (any_id, v0, id0, id1))
-//                         .then(PromiseFunction::<_, _, ()>::new(|In((s, r)), ()| {
+//                         .then(AsynFunction::<_, _, ()>::new(|In((s, r)), ()| {
 //                             let (any_id, mut value, id0, id1) = s.value.clone();
 //                             Promise::<(), (), ()>::register(
 //                                 move |world, _id| {
@@ -388,7 +395,7 @@ fn impl_all_promises_internal(elements: u8) -> TokenStream {
 //                 promise_register(
 //                     world,
 //                     p1.map_state(move |_| (any_id, v1, id0, id1))
-//                         .then(PromiseFunction::<_, _, ()>::new(|In((s, r)), ()| {
+//                         .then(AsynFunction::<_, _, ()>::new(|In((s, r)), ()| {
 //                             let (any_id, mut value, id0, id1) = s.value.clone();
 //                             Promise::<(), (), ()>::register(
 //                                 move |world, _id| {
@@ -477,8 +484,8 @@ fn impl_all_promises_internal_for(elements: u8) -> TokenStream {
         let i = TokenStream::from_str(&format!("{idx}")).unwrap();
         register = quote! {
             #register
-            promise_register(world, #p.map_state(move |_| (any_id, #v, #promise_id_targets))
-                .then(PromiseFunction::<_, _, ()>::new(|In((s, r)), ()| {
+            promise_register(world, #p.map(move |_| (any_id, #v, #promise_id_targets))
+                .then(AsynFunction::<_, _, ()>::new(|In((s, r)), ()| {
                     let (any_id, mut value, #promise_id_targets) = s.value.clone();
                     Promise::<(), (), ()>::register(
                         move |world, _id| {
