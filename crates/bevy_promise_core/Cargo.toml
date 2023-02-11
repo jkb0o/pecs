@@ -7,3 +7,4 @@ edition = "2021"
 
 [dependencies]
 bevy = "0.9"
+bevy_promise_macro = { path = "../bevy_promise_macro" }

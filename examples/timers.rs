@@ -11,13 +11,13 @@ fn main() {
         .run();
 }
 
-fn log_request<Str: 'static + ToString + std::fmt::Display>(url: Str) -> Promise<f32, (), ()> {
+fn log_request(url: &'static str) -> Promise<f32, (), ()> {
     Promise::new(
         url,
         asyn!(|s, time: Res<Time>| {
-            let url = s.value.to_string();
+            let url = s.value;
             let start = time.elapsed_seconds();
-            info!("Requesting {}", url);
+            info!("Requesting {url} at {start:0.2}");
             let r = s.with(|url| (url, start)).asyn().http().get(url).send();
             r
         }),
@@ -35,14 +35,11 @@ fn log_request<Str: 'static + ToString + std::fmt::Display>(url: Str) -> Promise
 fn setup(mut commands: Commands) {
     commands.spawn(Camera2dBundle::default());
     commands.add(
-        Promise::new(
-            (),
-            asyn!(|s, time: Res<Time>| {
-                let t = time.elapsed_seconds();
-                info!("start with 31, started at {t}, start time stored in state.");
-                s.with(|_| t).ok(31)
-            }),
-        )
+        Promise::start(asyn!(|s, time: Res<Time>| {
+            let t = time.elapsed_seconds();
+            info!("start with 31, started at {t}, start time stored in state.");
+            s.with(|_| t).ok(31)
+        }))
         .ok_then(asyn!(|s, r| {
             info!("Continue first time with result: {r}, incrementing");
             s.ok(r + 1)

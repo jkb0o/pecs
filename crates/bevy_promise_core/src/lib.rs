@@ -13,6 +13,7 @@ use bevy::{
     prelude::*,
     utils::HashMap,
 };
+use bevy_promise_macro::{impl_all_promises, impl_any_promises};
 
 pub struct AsyncOps<T>(pub T);
 pub struct AsyncState<T>(pub PromiseState<T>);
@@ -287,7 +288,11 @@ impl<R: 'static, E: 'static, S: 'static> Promise<R, E, S> {
             }
         })
     }
-
+    pub fn start<Params: PromiseParams, P: 'static + Into<PromiseResult<R, E, S>>>(
+        func: PromiseFunction<PromiseState<()>, P, Params>,
+    ) -> Promise<R, E, S> {
+        Promise::new((), func)
+    }
     pub fn new<D: 'static, Params: PromiseParams, P: 'static + Into<PromiseResult<R, E, S>>>(
         default_state: D,
         func: PromiseFunction<PromiseState<D>, P, Params>,
@@ -796,10 +801,10 @@ impl<S: 'static> PromiseState<S> {
         promise.map_state(|_| self.value)
     }
 
-    pub fn any<A: AnyPromise>(self, any: A) -> Promise<A::Result, (), S> {
+    pub fn any<A: AnyPromises>(self, any: A) -> Promise<A::Result, (), S> {
         any.register().map_state(|_| self.value)
     }
-    pub fn all<A: AllPromise>(self, all: A) -> Promise<A::Result, (), S> {
+    pub fn all<A: AllPromises>(self, all: A) -> Promise<A::Result, (), S> {
         all.register().map_state(|_| self.value)
     }
 }
@@ -837,170 +842,35 @@ impl<T> MutPtr<T> {
         self.0 = std::ptr::null_mut();
         *b
     }
-    pub fn as_ref(&self) -> &T {
+    pub fn get_ref(&self) -> &T {
         if self.0.is_null() {
             panic!("Ups.");
         }
         unsafe { self.0.as_ref().unwrap() }
     }
-    pub fn is_valid(&self) -> bool {
-        !self.0.is_null()
-    }
-    pub fn map<F: FnOnce(&mut T)>(&mut self, map: F) {
+    pub fn get_mut(&mut self) -> &mut T {
         if self.0.is_null() {
             panic!("Ups.");
         }
-        unsafe {
-            map(self.0.as_mut().unwrap());
-        }
-        // let b = unsafe { Box::from_raw(self.0) };
-        // let b = Box::new(map(*b));
-        // self.0 = Box::leak(b) as *mut T
+        unsafe { self.0.as_mut().unwrap() }
+    }
+    pub fn is_valid(&self) -> bool {
+        !self.0.is_null()
     }
 }
 
-pub trait AnyPromise {
+pub trait AnyPromises {
+    type Items;
+    type Result: 'static;
+
+    fn register(self) -> Promise<Self::Result, (), ()>;
+}
+pub trait AllPromises {
     type Items;
     type Result: 'static;
 
     fn register(self) -> Promise<Self::Result, (), ()>;
 }
 
-impl<R0: 'static, R1: 'static, E0: 'static, E1: 'static> AnyPromise for (Promise<R0, E0, ()>, Promise<R1, E1, ()>) {
-    type Items = (PromiseId, PromiseId);
-    type Result = (Option<Result<R0, E0>>, Option<Result<R1, E1>>);
-    fn register(self) -> Promise<Self::Result, (), ()> {
-        let (p0, p1) = self;
-        let (id0, id1) = (p0.id, p1.id);
-        Promise::register(
-            move |world, any_id| {
-                promise_register(
-                    world,
-                    p0.map_state(move |_| (any_id, id1))
-                        .then(PromiseFunction::<_, _, ()>::new(|In((s, r)), ()| {
-                            let (any_id, id1) = s.value.clone();
-                            Promise::<(), (), ()>::register(
-                                move |world, _id| {
-                                    // discard rest promises
-                                    promise_discard::<R1, E1, ()>(world, id1);
-                                    // resolve p0
-                                    promise_resolve::<(Option<Result<R0, E0>>, Option<Result<R1, E1>>), (), ()>(
-                                        world,
-                                        any_id,
-                                        (Some(r), None),
-                                        (),
-                                    );
-                                },
-                                move |_world, _id| {},
-                            )
-                        })),
-                );
-                promise_register(
-                    world,
-                    p1.map_state(move |_| (any_id, id0))
-                        .then(PromiseFunction::<_, _, ()>::new(|In((s, r)), ()| {
-                            let (any_id, id0) = s.value.clone();
-                            Promise::<(), (), ()>::register(
-                                move |world, _id| {
-                                    // discard rest promises
-                                    promise_discard::<R0, E0, ()>(world, id0);
-                                    // resolve p0
-                                    promise_resolve::<(Option<Result<R0, E0>>, Option<Result<R1, E1>>), (), ()>(
-                                        world,
-                                        any_id,
-                                        (None, Some(r)),
-                                        (),
-                                    );
-                                },
-                                move |_world, _id| {},
-                            )
-                        })),
-                );
-            },
-            move |world, _id| {
-                promise_discard::<R0, E0, ()>(world, id0);
-                promise_discard::<R1, E1, ()>(world, id1);
-            },
-        )
-    }
-}
-
-pub trait AllPromise {
-    type Items;
-    type Result: 'static;
-
-    fn register(self) -> Promise<Self::Result, (), ()>;
-}
-
-impl<R0: 'static, R1: 'static, E0: 'static, E1: 'static> AllPromise for (Promise<R0, E0, ()>, Promise<R1, E1, ()>) {
-    type Items = (PromiseId, PromiseId);
-    type Result = (Result<R0, E0>, Result<R1, E1>);
-    fn register(self) -> Promise<Self::Result, (), ()> {
-        let (p0, p1) = self;
-        let (id0, id1) = (p0.id, p1.id);
-        let value0 = MutPtr::<(Option<Result<R0, E0>>, Option<Result<R1, E1>>)>::new((None, None));
-        let value1 = value0.clone();
-
-        Promise::register(
-            move |world, any_id| {
-                promise_register(
-                    world,
-                    p0.map_state(move |_| (value0, any_id))
-                        .then(PromiseFunction::<_, _, ()>::new(|In((s, r)), ()| {
-                            let (mut value, any_id) = s.value.clone();
-                            Promise::<(), (), ()>::register(
-                                move |world, _id| {
-                                    value.map(|(v0, _)| *v0 = Some(r));
-                                    if value.is_valid() && value.as_ref().0.is_some() && value.as_ref().1.is_some() {
-                                        let (v0, v1) = value.get();
-                                        promise_resolve::<(Result<R0, E0>, Result<R1, E1>), (), ()>(
-                                            world,
-                                            any_id,
-                                            (v0.unwrap(), v1.unwrap()),
-                                            (),
-                                        );
-                                    }
-                                    // resolve p0
-                                },
-                                move |_world, _id| {},
-                            )
-                        })),
-                );
-                promise_register(
-                    world,
-                    p1.map_state(move |_| (value1, any_id))
-                        .then(PromiseFunction::<_, _, ()>::new(|In((s, r)), ()| {
-                            let (mut value, any_id) = s.value.clone();
-                            Promise::<(), (), ()>::register(
-                                move |world, _id| {
-                                    value.map(|(_, v1)| *v1 = Some(r));
-                                    if value.is_valid() && value.as_ref().0.is_some() && value.as_ref().1.is_some() {
-                                        let (v0, v1) = value.get();
-                                        promise_resolve::<(Result<R0, E0>, Result<R1, E1>), (), ()>(
-                                            world,
-                                            any_id,
-                                            (v0.unwrap(), v1.unwrap()),
-                                            (),
-                                        );
-                                    }
-                                    // resolve p0
-                                },
-                                move |_world, _id| {},
-                            )
-                        })),
-                );
-            },
-            move |world, id| {
-                promise_discard::<R0, E0, ()>(world, id0);
-                promise_discard::<R1, E1, ()>(world, id1);
-            },
-        )
-    }
-}
-
-#[derive(Resource)]
-struct AnyPromiseResults2<R0, E0, R1, E1>(HashMap<PromiseId, (Option<Result<R0, E0>>, Option<Result<R1, E1>>)>);
-unsafe impl<R0, E0, R1, E1> Send for AnyPromiseResults2<R0, E0, R1, E1> {}
-unsafe impl<R0, E0, R1, E1> Sync for AnyPromiseResults2<R0, E0, R1, E1> {}
-
-pub fn process_any_promise_2<R0, E0, R1, E1>() {}
+impl_any_promises! { 8 }
+impl_all_promises! { 8 }
