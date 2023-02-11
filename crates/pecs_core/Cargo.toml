@@ -6,6 +6,7 @@ description = "Asynchronous operations for Bevy Engine"
 homepage = "https://github.com/jkb0o/pecs"
 repository = "https://github.com/jkb0o/pecs"
 license = "MIT OR Apache-2.0"
+documentation = "https://docs.rs/pecs/"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

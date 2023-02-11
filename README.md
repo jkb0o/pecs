@@ -6,10 +6,10 @@ of Bevy's `ecs` enviroment.
 `pecs` is acronim for `Promise Entity Component System`.
 
 Resources:
-- [Docs](..)
-- [Examples](..)
-- [Report an issue](..)
-- [Provide an idea](..)
+- [Docs](https://docs.rs/pecs/)
+- [Examples](https://github.com/jkb0o/pecs/tree/master/examples)
+- [Report an issue](https://github.com/jkb0o/pecs/issues/new)
+- [Provide an idea](https://github.com/jkb0o/pecs/issues/new)
 
 ### Features
 - promise chaining with `then()`, `ok_then()` or `or_else()`
