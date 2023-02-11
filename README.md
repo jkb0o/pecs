@@ -1,9 +1,8 @@
 ## About
 `pecs` is a plugin for [Bevy](https://bevyengine.org) that allows you
-to execute code asynchronously by chaining multple promises with respect
-of Bevy's `ecs` enviroment.
+to execute code asynchronously by chaining multple promises as part of Bevy's `ecs` enviroment.
 
-`pecs` is acronim for `Promise Entity Component System`.
+`pecs`stands for `Promise Entity Component System`.
 
 Resources:
 - [Docs](https://docs.rs/pecs/)
@@ -14,7 +13,7 @@ Resources:
 ### Features
 - promise chaining with `then()`, `ok_then()` and `or_else()`
 - state passing (`state` for promises is like `self` for items)
-- complete type inference (the next promise knows tye types of previous result)
+- complete type inference (the next promise knows the type of the previous result)
 - out-of-the-box timer and http promises via `asyn` mod and stateful `state.asyn()`
 - custom promise registretion (add any asyn function you want!)
 - `system params` fetching (promise `asyn!` funcs accepts the same params
@@ -79,7 +78,7 @@ There is otput of the above example, pay some attention to time stamps:
 
 ## Work in Progress
 
-This repo is more like an experimental-proof-of-concept then a production-ready library.
+This repo is more like an experimental-proof-of-concept than a production-ready library.
 API could and will change. App will crash (there are some untested unsafe blocks), some
 promises will silently drop (there are stil no unit tests), documentation is incomplete
 and so on. But. But. Examples works like a charm. And this fact gives us a lot of hope.
