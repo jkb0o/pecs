@@ -2,6 +2,7 @@ use bevy::app::AppExit;
 use bevy::prelude::*;
 use bevy_promise::http::HttpOpsExtension;
 use bevy_promise::prelude::*;
+use bevy_promise_core::PromisesExtension;
 
 fn main() {
     App::new()
@@ -88,8 +89,8 @@ fn setup(mut commands: Commands) {
         }))
         .ok_then(asyn!(|s, _| {
             s.all((
-                asyn::http::get("https://google.com").send(),
-                asyn::http::get("https://bevyengine.org").send(),
+                asyn::http::get("https://google.com").send().log("google"),
+                asyn::http::get("https://bevyengine.org").send().log("bevy"),
             ))
         }))
         .ok_then(asyn!(|s, r| {
@@ -103,6 +104,49 @@ fn setup(mut commands: Commands) {
                 info!("Bevy respond with {}", bevy.status);
             } else {
                 info!("Bevy respond error");
+            }
+            s.ok(())
+        }))
+        .ok_then(asyn!(|s, _| {
+            info!("Requesting any");
+            ["https://google.com", "https://bevyengine.org", "https://github.com"]
+                .iter()
+                .map(|url| {
+                    info!("  {url}");
+                    asyn::http::get(url).send().with_state(*url)
+                })
+                .promise()
+                .any()
+                .with_state(s.value)
+        }))
+        .ok_then(asyn!(|s, (url, result)| {
+            let resp = match result {
+                Ok(r) => format!("{}", r.status),
+                Err(e) => e,
+            };
+            info!("{url} respond faster then others with {resp}");
+            s.ok(())
+        }))
+        .ok_then(asyn!(|s, _| {
+            info!("Requesting all");
+            ["https://google.com", "https://bevyengine.org", "https://github.com"]
+                .iter()
+                .map(|url| {
+                    info!("  {url}");
+                    url
+                })
+                .map(|url| asyn::http::get(url).send().with_state(*url))
+                .promise()
+                .all()
+                .with_state(s.value)
+        }))
+        .ok_then(asyn!(|s, r| {
+            info!("Services responded:");
+            for r in r.iter() {
+                match r {
+                    Ok(r) => info!("  {}", r.status),
+                    Err(e) => info!("  {e}"),
+                }
             }
             s.ok(())
         }))
@@ -144,4 +188,30 @@ pub fn rand() -> f32 {
     (epoch, pid).hash(&mut hasher);
     let seed = hasher.finish() as u64;
     (seed as f32) / u64::MAX as f32
+}
+
+pub trait LogExt<R: 'static, E: 'static, S: 'static> {
+    fn log<T: ToString>(self, label: T) -> Promise<R, E, S>;
+}
+
+impl<R: 'static, E: 'static, S: 'static> LogExt<R, E, S> for Promise<R, E, S> {
+    fn log<T: ToString>(self, label: T) -> Promise<R, E, S> {
+        let label = label.to_string();
+        Promise::new(
+            (self, label),
+            asyn!(|s, time: Res<Time>| {
+                let start = time.elapsed_seconds();
+                let promise = s.value.0;
+                let label = s.value.1;
+                promise
+                    .map_state(move |s| (start, label, s))
+                    .then(asyn!(|s, r, time: Res<Time>| {
+                        let started_at = s.value.0;
+                        let label = &s.value.1;
+                        info!("{label} complete in {:0.2}", time.elapsed_seconds() - started_at);
+                        s.with(|(_, _, state)| state).result(r)
+                    }))
+            }),
+        )
+    }
 }

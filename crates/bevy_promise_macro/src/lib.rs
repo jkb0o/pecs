@@ -2,12 +2,7 @@ extern crate proc_macro;
 use proc_macro2::{Ident, TokenStream};
 use quote::*;
 use std::str::FromStr;
-use syn::{
-    self,
-    ext::IdentExt,
-    token::{Colon, Comma},
-    LitInt, Pat, PatType, Result, Token, Type,
-};
+use syn::{self, token::Comma, LitInt, Pat, PatType, Token};
 
 #[proc_macro]
 pub fn asyn(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
@@ -39,21 +34,12 @@ pub fn impl_all_promises(input: proc_macro::TokenStream) -> proc_macro::TokenStr
 struct Promise {
     state: Ident,
     value: Option<Pat>,
-    default_state: Option<Ident>,
     system_args: Vec<syn::FnArg>,
     body: TokenStream,
 }
 
 impl syn::parse::Parse for Promise {
     fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
-        let default_state = if input.peek(Ident::peek_any) {
-            let state = Some(input.parse()?);
-            input.parse::<Token![=>]>()?;
-            state
-        } else {
-            None
-        };
-
         input.parse::<Token![|]>()?;
         let state = input.parse::<syn::Ident>()?;
         if input.peek(Comma) {
@@ -105,7 +91,6 @@ impl syn::parse::Parse for Promise {
         let body = input.parse::<TokenStream>()?;
         Ok(Promise {
             state,
-            default_state,
             value,
             body,
             system_args,
@@ -169,12 +154,10 @@ impl Context {
         let Some(pkg) = manifest.get("package") else { return context };
         let Some(pkg) = pkg.as_table() else { return context };
         let Some(pkg) = pkg.get("name") else { return context };
-        let Some(_pkg) = pkg.as_str() else { return context };
+        let Some(pkg) = pkg.as_str() else { return context };
         // in future, macro may be used from inside the workspace
-        if false
-        /* pkg.trim() == "bevy_promise_http" */
-        {
-            context.core_path = quote! { ::bevy_promise_core };
+        if pkg.trim() == "bevy_promise_core" {
+            context.core_path = quote! { crate };
         } else {
             context.core_path = quote! { ::bevy_promise::core };
             context.is_interal = false;
@@ -331,7 +314,7 @@ fn impl_any_promises_internal_for(elements: u8) -> TokenStream {
 
     quote! {
         impl<#in_generics> AnyPromises for (#for_args) {
-            type Items = (#type_items);
+            // type Items = (#type_items);
             type Result = (#type_result);
             fn register(self) -> Promise<Self::Result, (), ()> {
                 let (#promise_idents) = self;
@@ -521,7 +504,7 @@ fn impl_all_promises_internal_for(elements: u8) -> TokenStream {
 
     quote! {
         impl<#in_generics> AllPromises for (#for_args) {
-            type Items = (#type_items);
+            // type Items = (#type_items);
             type Result = (#type_result);
             fn register(self) -> Promise<Self::Result, (), ()> {
                 let (#promise_idents) = self;

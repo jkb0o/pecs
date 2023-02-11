@@ -1,19 +1,17 @@
-use std::{
-    any::type_name,
-    cell::RefCell,
-    marker::PhantomData,
-    mem,
-    ops::Deref,
-    sync::{Arc, RwLock},
-    thread::{self, ThreadId},
-};
-
 use bevy::{
     ecs::system::{Command, SystemParam, SystemParamItem},
     prelude::*,
     utils::HashMap,
 };
-use bevy_promise_macro::{impl_all_promises, impl_any_promises};
+use bevy_promise_macro::{asyn, impl_all_promises, impl_any_promises};
+use std::{
+    any::type_name,
+    cell::RefCell,
+    marker::PhantomData,
+    mem,
+    sync::{Arc, RwLock},
+    thread::{self, ThreadId},
+};
 
 pub struct AsyncOps<T>(pub T);
 pub struct AsyncState<T>(pub PromiseState<T>);
@@ -174,23 +172,6 @@ pub enum PromiseResult<R, E, S> {
     Resolve(R, S),
     Rejected(E, S),
     Await(Promise<R, E, S>),
-}
-
-pub struct OnceValue<T>(*mut T);
-unsafe impl<T> Send for OnceValue<T> {}
-unsafe impl<T> Sync for OnceValue<T> {}
-impl<T> OnceValue<T> {
-    pub fn new(value: T) -> OnceValue<T> {
-        let b = Box::new(value);
-        OnceValue(Box::leak(b) as *mut T)
-    }
-    pub fn get(&self) -> T {
-        if self.0.is_null() {
-            panic!("Ups.")
-        }
-        let b = unsafe { Box::from_raw(self.0) };
-        *b
-    }
 }
 
 impl<R, E, S> From<Promise<R, E, S>> for PromiseResult<R, E, S> {
@@ -473,7 +454,7 @@ impl<R: 'static, E: 'static, S: 'static> Promise<R, E, S> {
         self.discard = Some(Box::new(move |world, _id| {
             promise_discard::<R2, E, S>(world, id);
         }));
-        let map = OnceValue::new(map);
+        let mut map = MutPtr::new(map);
         self.resolve_reject = Some(Box::new(move |world, result, state| {
             let mut system = IntoSystem::into_system(move |In((s, r)): In<(PromiseState<S>, Result<R, E>)>| match r {
                 Ok(r) => s.resolve(map.get()(r)),
@@ -529,7 +510,7 @@ impl<R: 'static, E: 'static, S: 'static> Promise<R, E, S> {
         self.discard = Some(Box::new(move |world, _id| {
             promise_discard::<R, E2, S>(world, id);
         }));
-        let map = OnceValue::new(map);
+        let mut map = MutPtr::new(map);
         self.resolve_reject = Some(Box::new(move |world, result, state| {
             let mut system = IntoSystem::into_system(move |In((s, r)): In<(PromiseState<S>, Result<R, E>)>| match r {
                 Ok(r) => s.resolve(r),
@@ -578,6 +559,9 @@ impl<R: 'static, E: 'static, S: 'static> Promise<R, E, S> {
         }
     }
 
+    pub fn with_state<S2: 'static>(self, state: S2) -> Promise<R, E, S2> {
+        self.map_state(|_| state)
+    }
     pub fn map_state<S2: 'static, F: 'static + FnOnce(S) -> S2>(mut self, map: F) -> Promise<R, E, S2> {
         let id = Self::id();
         let discard = mem::take(&mut self.discard);
@@ -585,7 +569,7 @@ impl<R: 'static, E: 'static, S: 'static> Promise<R, E, S> {
         self.discard = Some(Box::new(move |world, _id| {
             promise_discard::<R, E, S2>(world, id);
         }));
-        let map = OnceValue::new(map);
+        let mut map = MutPtr::new(map);
         self.resolve_reject = Some(Box::new(move |world, result, state| {
             let mut system = IntoSystem::into_system(move |In((s, r)): In<(PromiseState<S>, Result<R, E>)>| {
                 PromiseState::new(map.get()(s.value)).result(r)
@@ -822,7 +806,8 @@ impl<T: std::fmt::Debug> std::fmt::Debug for PromiseState<T> {
 }
 
 pub struct MutPtr<T>(*mut T);
-
+unsafe impl<T> Send for MutPtr<T> {}
+unsafe impl<T> Sync for MutPtr<T> {}
 impl<T> Clone for MutPtr<T> {
     fn clone(&self) -> Self {
         MutPtr(self.0)
@@ -860,17 +845,115 @@ impl<T> MutPtr<T> {
 }
 
 pub trait AnyPromises {
-    type Items;
+    // type Items;
     type Result: 'static;
 
     fn register(self) -> Promise<Self::Result, (), ()>;
 }
 pub trait AllPromises {
-    type Items;
+    // type Items;
     type Result: 'static;
 
     fn register(self) -> Promise<Self::Result, (), ()>;
 }
 
+impl<R: 'static, E: 'static, S: 'static> AnyPromises for Vec<Promise<R, E, S>> {
+    type Result = (S, Result<R, E>);
+    fn register(self) -> Promise<Self::Result, (), ()> {
+        let ids: Vec<PromiseId> = self.iter().map(|p| p.id).collect();
+        let discard_ids = ids.clone();
+        Promise::register(
+            move |world, any_id| {
+                let mut idx = 0usize;
+                for promise in self {
+                    let ids = ids.clone();
+                    promise_register(
+                        world,
+                        promise.map_state(move |s| (s, any_id, idx, ids)).then(asyn!(|s, r| {
+                            let (state, any_id, idx, ids) = s.value;
+                            Promise::<(), (), ()>::register(
+                                move |world, _id| {
+                                    for (i, id) in ids.iter().enumerate() {
+                                        if i != idx {
+                                            promise_discard::<R, E, S>(world, *id);
+                                        }
+                                    }
+                                    promise_resolve::<(S, Result<R, E>), (), ()>(world, any_id, (state, r), ())
+                                },
+                                |_, _| {},
+                            )
+                        })),
+                    );
+                    idx += 1;
+                }
+            },
+            move |world, _| {
+                for id in discard_ids {
+                    promise_discard::<R, E, S>(world, id);
+                }
+            },
+        )
+    }
+}
+
+impl<R: 'static, E: 'static, S: 'static> AllPromises for Vec<Promise<R, E, S>> {
+    type Result = Vec<Result<R, E>>;
+    fn register(self) -> Promise<Self::Result, (), ()> {
+        let ids: Vec<PromiseId> = self.iter().map(|p| p.id).collect();
+        let size = ids.len();
+        Promise::register(
+            move |world, any_id| {
+                let value: Vec<Option<Result<R, E>>> = (0..size).map(|_| None).collect();
+                let value = MutPtr::new(value);
+                let mut idx = 0usize;
+                for promise in self {
+                    promise_register(
+                        world,
+                        promise.with_state((any_id, idx, value.clone())).then(asyn!(|s, r| {
+                            let (any_id, idx, mut value) = s.value;
+                            Promise::<(), (), ()>::register(
+                                move |world, _id| {
+                                    value.get_mut()[idx] = Some(r);
+                                    if value.get_ref().iter().all(|v| v.is_some()) {
+                                        let value = value.get().into_iter().map(|v| v.unwrap()).collect();
+                                        promise_resolve::<Vec<Result<R, E>>, (), ()>(world, any_id, value, ())
+                                    }
+                                },
+                                |_, _| {},
+                            )
+                        })),
+                    );
+                    idx += 1;
+                }
+            },
+            move |world, _| {
+                for id in ids {
+                    promise_discard::<R, E, S>(world, id);
+                }
+            },
+        )
+    }
+}
+
 impl_any_promises! { 8 }
 impl_all_promises! { 8 }
+
+pub struct Promises<R: 'static, E: 'static, S: 'static>(Vec<Promise<R, E, S>>);
+impl<R: 'static, E: 'static, S: 'static> Promises<R, E, S> {
+    pub fn any(self) -> Promise<(S, Result<R, E>), (), ()> {
+        PromiseState::new(()).any(self.0)
+    }
+    pub fn all(self) -> Promise<Vec<Result<R, E>>, (), ()> {
+        PromiseState::new(()).all(self.0)
+    }
+}
+
+pub trait PromisesExtension<R: 'static, E: 'static, S: 'static> {
+    fn promise(self) -> Promises<R, E, S>;
+}
+
+impl<R: 'static, E: 'static, S: 'static, I: Iterator<Item = Promise<R, E, S>>> PromisesExtension<R, E, S> for I {
+    fn promise(self) -> Promises<R, E, S> {
+        Promises(self.collect())
+    }
+}
