@@ -4,15 +4,15 @@
 //! of Bevy's `ecs` enviroment.
 //!
 //! ### Features
-//! - promise chaining with ([`then()`][prelude::Promise::then],
-//!   [`ok_then()`][prelude::Promise::ok_then] or [`or_else()`][core::IncompletePromise::or_else])
+//! - promise chaining with [`then()`][prelude::Promise::then],
+//!   [`ok_then()`][prelude::Promise::ok_then] and [`or_else()`][core::IncompletePromise::or_else]
 //! - state passing (`state` for promises is like `self` for items)
 //! - complete type inference (the next promise knows tye types of previous result)
 //! - out-of-the-box timer and http promises via [`asyn`][mod@prelude::asyn] mod and stateful
 //!   [`state.asyn()`][core::PromiseState::asyn]
 //! - custom promise registretion (add any asyn function you want!)
-//! - [system params][bevy::ecs::system::SystemParam] fetching
-//!   (promise `asyn!` funcs acccepts the same params the bevy systems does)
+//! - [system params](https://docs.rs/bevy/latest/bevy/ecs/system/trait.SystemParam.html) fetching
+//!   (promise `asyn!` funcs accepts the same params the bevy systems does)
 //! - nested promises (with chaining, obviously)
 //! - combining promises with any/all for tuple/vec of promises via stateles
 //!   [`Promise::any()`][core::PromiseAnyMethod::any()]/

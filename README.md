@@ -12,12 +12,12 @@ Resources:
 - [Provide an idea](https://github.com/jkb0o/pecs/issues/new)
 
 ### Features
-- promise chaining with `then()`, `ok_then()` or `or_else()`
+- promise chaining with `then()`, `ok_then()` and `or_else()`
 - state passing (`state` for promises is like `self` for items)
 - complete type inference (the next promise knows tye types of previous result)
 - out-of-the-box timer and http promises via `asyn` mod and stateful `state.asyn()`
 - custom promise registretion (add any asyn function you want!)
-- `system params` fetching (promise `asyn!` funcs acccepts the same params
+- `system params` fetching (promise `asyn!` funcs accepts the same params
   the bevy systems does)
 - nested promises (with chaining, obviously)
 - combining promises with any/all for tuple/vec of promises via stateles
@@ -86,7 +86,7 @@ and so on. But. But. Examples works like a charm. And this fact gives us a lot o
 
 ## License
 
-The `belly` is dual-licensed under either:
+The `pecs` is dual-licensed under either:
 
 - MIT License ([LICENSE-MIT](LICENSE-MIT) or [http://opensource.org/licenses/MIT](http://opensource.org/licenses/MIT))
 - Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or [http://www.apache.org/licenses/LICENSE-2.0](http://www.apache.org/licenses/LICENSE-2.0))
