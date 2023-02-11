@@ -2,9 +2,13 @@
 name = "pecs_core"
 version = "0.1.0"
 edition = "2021"
+description = "Asynchronous operations for Bevy Engine"
+homepage = "https://github.com/jkb0o/pecs"
+repository = "https://github.com/jkb0o/pecs"
+license = "MIT OR Apache-2.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 bevy = "0.9"
-pecs_macro = { path = "../pecs_macro" }
+pecs_macro = { path = "../pecs_macro",  version = "0.1.0" }

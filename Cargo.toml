@@ -2,6 +2,12 @@
 name = "pecs"
 version = "0.1.0"
 edition = "2021"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+description = "Asynchronous operations for Bevy Engine"
+homepage = "https://github.com/jkb0o/pecs"
+repository = "https://github.com/jkb0o/pecs"
+
 
 [workspace]
 members = [
@@ -12,6 +18,6 @@ members = [
 
 [dependencies]
 bevy = "0.9"
-pecs_macro = { path = "crates/pecs_macro" }
-pecs_core = { path = "crates/pecs_core" }
-pecs_http = { path = "crates/pecs_http" }
+pecs_macro = { path = "crates/pecs_macro", version = "0.1.0"}
+pecs_core = { path = "crates/pecs_core", version = "0.1.0" }
+pecs_http = { path = "crates/pecs_http",  version = "0.1.0" }
