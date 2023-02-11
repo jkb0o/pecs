@@ -29,7 +29,7 @@
 //! ## Example
 //! ```rust
 //! use bevy::{prelude::*, app::AppExit};
-//! use bevy_promise::prelude::*;
+//! use pecs::prelude::*;
 //!
 //! fn main() {
 //!     App::new()
@@ -153,51 +153,51 @@
 //! then perfect. So I just put complex example here (with all features covered) and wish you a
 //! good luck.
 
-/// All you need is `use bevy_promise::prelud::*`
+/// All you need is `use pecs::prelud::*`
 pub mod prelude {
     #[doc(inline)]
-    pub use bevy_promise_core::Promise;
+    pub use pecs_core::Promise;
     #[doc(inline)]
-    pub use bevy_promise_core::PromiseCommand;
+    pub use pecs_core::PromiseCommand;
     #[doc(inline)]
-    pub use bevy_promise_core::PromiseId;
+    pub use pecs_core::PromiseId;
 
     #[doc(inline)]
-    pub use bevy_promise_core::timer::TimerOpsExtension;
+    pub use pecs_core::timer::TimerOpsExtension;
     #[doc(inline)]
-    pub use bevy_promise_core::PromiseAllMethod;
+    pub use pecs_core::PromiseAllMethod;
     #[doc(inline)]
-    pub use bevy_promise_core::PromiseAnyMethod;
+    pub use pecs_core::PromiseAnyMethod;
     #[doc(inline)]
-    pub use bevy_promise_core::PromiseCommandsExtension;
+    pub use pecs_core::PromiseCommandsExtension;
     #[doc(inline)]
-    pub use bevy_promise_http::HttpOpsExtension;
+    pub use pecs_http::HttpOpsExtension;
     #[doc(inline)]
-    pub use bevy_promise_macro::asyn;
+    pub use pecs_macro::asyn;
 
     use bevy::prelude::*;
-    pub struct PromisePlugin;
-    impl Plugin for PromisePlugin {
+    pub struct PecsPlugin;
+    impl Plugin for PecsPlugin {
         fn build(&self, app: &mut App) {
-            app.init_resource::<bevy_promise_core::timer::Timers>();
-            app.add_system(bevy_promise_core::timer::process_timers);
+            app.init_resource::<pecs_core::timer::Timers>();
+            app.add_system(pecs_core::timer::process_timers);
 
-            app.add_plugin(bevy_promise_http::PromiseHttpPlugin);
+            app.add_plugin(pecs_http::PromiseHttpPlugin);
         }
     }
 
     /// Out-of-the box async operations
     pub mod asyn {
         #[doc(inline)]
-        pub use bevy_promise_core::timer::timeout;
+        pub use pecs_core::timer::timeout;
         #[doc(inline)]
-        pub use bevy_promise_http::asyn as http;
+        pub use pecs_http::asyn as http;
     }
 }
 
 #[doc(inline)]
-pub use bevy_promise_core as core;
+pub use pecs_core as core;
 #[doc(inline)]
-pub use bevy_promise_core::timer;
+pub use pecs_core::timer;
 #[doc(inline)]
-pub use bevy_promise_http as http;
+pub use pecs_http as http;

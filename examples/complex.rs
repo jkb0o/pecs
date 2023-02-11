@@ -1,12 +1,12 @@
 use bevy::app::AppExit;
 use bevy::prelude::*;
-use bevy_promise::prelude::*;
-use bevy_promise_core::PromisesExtension;
+use pecs::prelude::*;
+use pecs_core::PromisesExtension;
 
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
-        .add_plugin(PromisePlugin)
+        .add_plugin(PecsPlugin)
         .add_startup_system(setup)
         .run();
 }

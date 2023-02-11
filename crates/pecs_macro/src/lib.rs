@@ -6,7 +6,7 @@ use syn::{self, token::Comma, LitInt, Pat, PatType, Token};
 
 #[proc_macro]
 /// Turns system-like expresion into
-/// [`AsynFunction`](https://docs.rs/bevy_promise/latest/bevy_promise/struct.AsynFunction.html))
+/// [`AsynFunction`](https://docs.rs/pecs/latest/pecs/struct.AsynFunction.html))
 pub fn asyn(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let ctx = Context::new();
     let promise = syn::parse_macro_input!(input as Asyn);
@@ -144,7 +144,7 @@ struct Context {
 impl Context {
     pub fn new() -> Context {
         let mut context = Context {
-            core_path: quote! { ::bevy_promise_core },
+            core_path: quote! { ::pecs_core },
             is_interal: true,
         };
         let Some(manifest_path) = std::env::var_os("CARGO_MANIFEST_DIR")
@@ -163,10 +163,10 @@ impl Context {
         let Some(pkg) = pkg.get("name") else { return context };
         let Some(pkg) = pkg.as_str() else { return context };
         // in future, macro may be used from inside the workspace
-        if pkg.trim() == "bevy_promise_core" {
+        if pkg.trim() == "pecs_core" {
             context.core_path = quote! { crate };
         } else {
-            context.core_path = quote! { ::bevy_promise::core };
+            context.core_path = quote! { ::pecs::core };
             context.is_interal = false;
         };
         context

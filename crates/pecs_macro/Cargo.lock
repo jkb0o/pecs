@@ -3,5 +3,5 @@
 version = 3
 
 [[package]]
-name = "bevy_promise_macro"
+name = "pecs_macro"
 version = "0.1.0"

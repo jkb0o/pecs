@@ -29,7 +29,7 @@ Resources:
 ## Example
 ```rust
 use bevy::{prelude::*, app::AppExit};
-use bevy_promise::prelude::*;
+use pecs::prelude::*;
 
 fn main() {
     App::new()

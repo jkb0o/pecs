@@ -1,9 +1,10 @@
+//! This Example shows how you can create custom promises
 use bevy::prelude::*;
-use bevy_promise::prelude::*;
+use pecs::prelude::*;
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
-        .add_plugin(PromisePlugin)
+        .add_plugin(PecsPlugin)
         .add_system(process_timers_system)
         .add_startup_system(setup)
         .run();
@@ -16,7 +17,7 @@ pub struct MyTimer(PromiseId, f32);
 /// creates promise that will resolve after [`duration`] seconds
 pub fn delay(duration: f32) -> Promise<(), (), ()> {
     Promise::register(
-        // this will be invoket when promise's turn comes
+        // this will be invoked when promise's turn comes
         move |world, id| {
             let now = world.resource::<Time>().elapsed_seconds();
             // store timer

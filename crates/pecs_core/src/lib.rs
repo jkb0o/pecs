@@ -4,7 +4,7 @@ use bevy::{
     prelude::*,
     utils::HashMap,
 };
-use bevy_promise_macro::{asyn, impl_all_promises, impl_any_promises};
+use pecs_macro::{asyn, impl_all_promises, impl_any_promises};
 use std::{
     any::type_name,
     cell::RefCell,

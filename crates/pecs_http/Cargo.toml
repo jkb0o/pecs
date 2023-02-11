@@ -1,5 +1,5 @@
 [package]
-name = "bevy_promise_http"
+name = "pecs_http"
 version = "0.1.0"
 edition = "2021"
 
@@ -9,4 +9,4 @@ edition = "2021"
 bevy = "0.9"
 ehttp = "0.2"
 futures-lite = "1.12"
-bevy_promise_core = { path = "../bevy_promise_core" }
+pecs_core = { path = "../pecs_core" }

@@ -1,9 +1,9 @@
 use bevy::{app::AppExit, prelude::*};
-use bevy_promise::prelude::*;
+use pecs::prelude::*;
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
-        .add_plugin(PromisePlugin)
+        .add_plugin(PecsPlugin)
         .add_startup_system(setup)
         .run();
 }

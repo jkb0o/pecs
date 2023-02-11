@@ -1,17 +1,17 @@
 [package]
-name = "bevy_promise"
+name = "pecs"
 version = "0.1.0"
 edition = "2021"
 
 [workspace]
 members = [
-    "crates/bevy_promise_core",
-    "crates/bevy_promise_http",
-    "crates/bevy_promise_macro"
+    "crates/pecs_core",
+    "crates/pecs_http",
+    "crates/pecs_macro"
 ]
 
 [dependencies]
 bevy = "0.9"
-bevy_promise_macro = { path = "crates/bevy_promise_macro" }
-bevy_promise_core = { path = "crates/bevy_promise_core" }
-bevy_promise_http = { path = "crates/bevy_promise_http" }
+pecs_macro = { path = "crates/pecs_macro" }
+pecs_core = { path = "crates/pecs_core" }
+pecs_http = { path = "crates/pecs_http" }

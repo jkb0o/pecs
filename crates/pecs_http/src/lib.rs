@@ -2,9 +2,9 @@
 use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task};
 use bevy::utils::HashMap;
-use bevy_promise_core::{AsyncOps, Promise, PromiseCommand, PromiseId, PromiseResult};
 pub use ehttp::Response;
 use futures_lite::future;
+use pecs_core::{AsyncOps, Promise, PromiseCommand, PromiseId, PromiseResult};
 
 pub struct PromiseHttpPlugin;
 impl Plugin for PromiseHttpPlugin {

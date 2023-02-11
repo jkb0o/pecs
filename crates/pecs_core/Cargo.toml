@@ -1,5 +1,5 @@
 [package]
-name = "bevy_promise_core"
+name = "pecs_core"
 version = "0.1.0"
 edition = "2021"
 
@@ -7,4 +7,4 @@ edition = "2021"
 
 [dependencies]
 bevy = "0.9"
-bevy_promise_macro = { path = "../bevy_promise_macro" }
+pecs_macro = { path = "../pecs_macro" }
