@@ -381,10 +381,6 @@ pub mod prelude {
     #[doc(inline)]
     pub use pecs_core::timer::TimerOpsExtension;
     #[doc(inline)]
-    pub use pecs_core::PromiseAllMethod;
-    #[doc(inline)]
-    pub use pecs_core::PromiseAnyMethod;
-    #[doc(inline)]
     pub use pecs_core::PromisesExtension;
     #[doc(inline)]
     pub use pecs_core::PromiseCommandsExtension;

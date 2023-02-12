@@ -40,7 +40,7 @@ fn setup(mut commands: Commands) {
                     Err(error) => info!("  Can't get {url}: {error}")
                 }
             }
-            Promise::resolve(())
+            Promise::pass()
         }))
         // Promise::any() works the same way: it takes a vec of promises
         // and returns another promise that will be resolved when the ANY
@@ -61,7 +61,7 @@ fn setup(mut commands: Commands) {
                 Ok(response) => info!("{url} was fastest with status {}", response.status),
                 Err(error) => info!("{url} failed first with {error}")
             }
-            Promise::resolve(())
+            Promise::pass()
         }))
         // `pecs` comes with iterator extension for promises.
         // It allows you to make the same calls, but sligtly simpler:
@@ -85,7 +85,7 @@ fn setup(mut commands: Commands) {
                     Err(error) => info!("  Can't get {url}: {error}")
                 }
             }
-            Promise::resolve(())
+            Promise::pass()
         }))
         // and the same way .prmise().any() could be done:
         .then(asyn!(_, _ => {
@@ -101,7 +101,7 @@ fn setup(mut commands: Commands) {
                 Ok(response) => info!("{url} was fastest with status {}", response.status),
                 Err(error) => info!("{url} failed first with {error}")
             }
-            Promise::resolve(())
+            Promise::pass()
         }))
         // In previouse calls state (the first argument to asyn!) was ignored,
         // () was passed between calls.
@@ -128,7 +128,7 @@ fn setup(mut commands: Commands) {
         // resolved value doesn't important here
         // state is more interesting: its type is
         // PromiseState<f32>
-        .then(asyn!(mut state, _, time: Res<Time> => {
+        .then(asyn!(state, _, time: Res<Time> => {
             let current_time = time.elapsed_seconds();
             let delta = current_time - state.value;
             info!("Time to complete all requests: {delta:0.3}");
@@ -143,7 +143,7 @@ fn setup(mut commands: Commands) {
                 .collect::<Vec<_>>();
             state.any(requests)
         }))
-        .then(asyn!(mut state, _, time: Res<Time> => {
+        .then(asyn!(state, _, time: Res<Time> => {
             let current_time = time.elapsed_seconds();
             let delta = current_time - state.value;
             info!("Time to complete fastest request: {delta:0.3}");
@@ -169,7 +169,7 @@ fn setup(mut commands: Commands) {
         .then(asyn!(_, _,  mut exit: EventWriter<AppExit> => {
             info!("See you!");
             exit.send(AppExit);
-            Promise::resolve(())
+            Promise::pass()
         })),
     );
 }

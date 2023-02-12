@@ -447,22 +447,15 @@ impl<R: 'static> Promise<(), R> {
     }
 }
 
-pub trait PromiseAnyMethod<T: AnyPromises> {
-    fn any(any: T) -> Promise<(), T::Result>;
-}
-
-impl<T: AnyPromises> PromiseAnyMethod<T> for Promise<(), T::Result> {
-    fn any(any: T) -> Promise<(), T::Result> {
+impl Promise<(), ()> {
+    pub fn pass() -> PromiseResult<(), ()> {
+        PromiseResult::Resolve((), ())
+    }
+    pub fn any<T: AnyPromises>(any: T) -> Promise<(), T::Result> {
         any.register()
     }
-}
-pub trait PromiseAllMethod<T: AllPromises> {
-    fn all(all: T) -> Promise<(), T::Result>;
-}
-
-impl<T: AllPromises> PromiseAllMethod<T> for Promise<(), T::Result> {
-    fn all(all: T) -> Promise<(), T::Result> {
-        all.register()
+    pub fn all<T: AllPromises>(any: T) -> Promise<(), T::Result> {
+        any.register()
     }
 }
 

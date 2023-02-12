@@ -120,7 +120,13 @@ impl Asyn {
             types = quote! { #types #typ, };
         }
         let input = &self.state;
-        let mut input = quote! { #input };
+        let is = input.to_token_stream().to_string().trim().to_string();
+        let mutable = if is.starts_with("_") || is.starts_with("mut ") {
+            quote! { }
+        } else {
+            quote! { mut }
+        };
+        let mut input = quote! { #mutable #input };
         if let Some(value) = &self.value {
             input = quote! { (#input, #value) };
         }
