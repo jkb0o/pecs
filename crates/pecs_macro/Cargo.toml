@@ -1,6 +1,6 @@
 [package]
 name = "pecs_macro"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 description = "Asynchronous operations for Bevy Engine"
 homepage = "https://github.com/jkb0o/pecs"

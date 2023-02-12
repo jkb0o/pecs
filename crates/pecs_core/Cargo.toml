@@ -1,6 +1,6 @@
 [package]
 name = "pecs_core"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 description = "Asynchronous operations for Bevy Engine"
 homepage = "https://github.com/jkb0o/pecs"
@@ -12,4 +12,4 @@ documentation = "https://docs.rs/pecs/"
 
 [dependencies]
 bevy = "0.9"
-pecs_macro = { path = "../pecs_macro",  version = "0.2.0" }
+pecs_macro = { path = "../pecs_macro",  version = "0.2.1" }
