@@ -261,19 +261,18 @@ fn impl_any_promises_internal_for(elements: u8) -> TokenStream {
     for idx in 0..elements + 1 {
         let c = if idx == 0 { quote!() } else { quote!(,) };
         let r = format_ident!("R{idx}");
-        let e = format_ident!("E{idx}");
         let p = format_ident!("p{idx}");
         let id = format_ident!("id{idx}");
-        in_generics = quote!(#in_generics #c #r: 'static, #e: 'static);
-        for_args = quote!(#for_args #c Promise<#r, #e, ()>);
+        in_generics = quote!(#in_generics #c #r: 'static);
+        for_args = quote!(#for_args #c Promise<(), #r>);
         type_items = quote!(#type_items #c PromiseId);
-        type_result = quote!(#type_result #c Option<Result<#r, #e>>);
+        type_result = quote!(#type_result #c Option<#r>);
         promise_idents = quote!(#promise_idents #c #p);
         promise_id_targets = quote!(#promise_id_targets #c #id);
         promise_id_sources = quote!(#promise_id_sources #c #p.id);
         discards = quote! {
             #discards
-            promise_discard::<#r, #e, ()>(world, #id);
+            promise_discard::<(), #r>(world, #id);
         }
     }
     for idx in 0..elements + 1 {
@@ -282,13 +281,12 @@ fn impl_any_promises_internal_for(elements: u8) -> TokenStream {
         let mut local_value = quote! {};
         for local in 0..elements + 1 {
             let r = format_ident!("R{local}");
-            let e = format_ident!("E{local}");
             let id = format_ident!("id{local}");
             let c = if local == 0 { quote!() } else { quote!(,) };
             if local != idx {
                 local_discards = quote! {
                     #local_discards
-                    promise_discard::<#r, #e, ()>(world, #id);
+                    promise_discard::<(), #r>(world, #id);
                 }
             }
             if local == idx {
@@ -299,17 +297,17 @@ fn impl_any_promises_internal_for(elements: u8) -> TokenStream {
         }
         register = quote! {
             #register
-            promise_register(world, #p.map(move |_| (any_id, #promise_id_targets))
+            promise_register(world, #p.with((any_id, #promise_id_targets))
                 .then(AsynFunction::<_, _, ()>::new(|In((s, r)), ()| {
                     let (any_id, #promise_id_targets) = s.value.clone();
-                    Promise::<(), (), ()>::register(
+                    Promise::<(), ()>::register(
                         move |world, _id| {
                             #local_discards
-                            promise_resolve::<(#type_result), (), ()>(
+                            promise_resolve::<(), (#type_result)>(
                                 world,
                                 any_id,
-                                (#local_value),
                                 (),
+                                (#local_value),
                             );
                         },
                         |_, _| {}
@@ -323,7 +321,7 @@ fn impl_any_promises_internal_for(elements: u8) -> TokenStream {
         impl<#in_generics> AnyPromises for (#for_args) {
             // type Items = (#type_items);
             type Result = (#type_result);
-            fn register(self) -> Promise<Self::Result, (), ()> {
+            fn register(self) -> Promise<(), Self::Result> {
                 let (#promise_idents) = self;
                 let (#promise_id_targets) = (#promise_id_sources);
                 Promise::register(
@@ -350,86 +348,6 @@ fn impl_all_promises_internal(elements: u8) -> TokenStream {
     result
 }
 
-// Macro epansion example for 2 elements:
-// impl<R0: 'static, E0: 'static, R1: 'static, E1: 'static> AllPromises for (Promise<R0, E0, ()>, Promise<R1, E1, ()>) {
-//     type Items = (PromiseId, PromiseId);
-//     type Result = (Result<R0, E0>, Result<R1, E1>);
-//     fn register(self) -> Promise<Self::Result, (), ()> {
-//         let (p0, p1) = self;
-//         let (id0, id1) = (p0.id, p1.id);
-//         let value = MutPtr::<(Option<Result<R0, E0>>, Option<Result<R1, E1>>)>::new((None, None));
-//         let v0 = value.clone();
-//         let v1 = value.clone();
-//         Promise::register(
-//             move |world, any_id| {
-//                 promise_register(
-//                     world,
-//                     p0.map_state(move |_| (any_id, v0, id0, id1))
-//                         .then(AsynFunction::<_, _, ()>::new(|In((s, r)), ()| {
-//                             let (any_id, mut value, id0, id1) = s.value.clone();
-//                             Promise::<(), (), ()>::register(
-//                                 move |world, _id| {
-//                                     value.get_mut().0 = Some(r);
-//                                     if {
-//                                         value.is_valid() && {
-//                                             let value = value.get_ref();
-//                                             true && value.0.is_some() && value.1.is_some()
-//                                         }
-//                                     } {
-//                                         let (v0, v1) = value.get();
-//                                         promise_resolve::<(Result<R0, E0>, Result<R1, E1>), (), ()>(
-//                                             world,
-//                                             any_id,
-//                                             (v0.unwrap(), v1.unwrap()),
-//                                             (),
-//                                         );
-//                                     }
-//                                 },
-//                                 move |world, _| {
-//                                     promise_discard::<R0, E0, ()>(world, id0);
-//                                     promise_discard::<R1, E1, ()>(world, id1);
-//                                 },
-//                             )
-//                         })),
-//                 );
-//                 promise_register(
-//                     world,
-//                     p1.map_state(move |_| (any_id, v1, id0, id1))
-//                         .then(AsynFunction::<_, _, ()>::new(|In((s, r)), ()| {
-//                             let (any_id, mut value, id0, id1) = s.value.clone();
-//                             Promise::<(), (), ()>::register(
-//                                 move |world, _id| {
-//                                     value.get_mut().1 = Some(r);
-//                                     if {
-//                                         value.is_valid() && {
-//                                             let value = value.get_ref();
-//                                             true && value.0.is_some() && value.1.is_some()
-//                                         }
-//                                     } {
-//                                         let (v0, v1) = value.get();
-//                                         promise_resolve::<(Result<R0, E0>, Result<R1, E1>), (), ()>(
-//                                             world,
-//                                             any_id,
-//                                             (v0.unwrap(), v1.unwrap()),
-//                                             (),
-//                                         );
-//                                     }
-//                                 },
-//                                 move |world, _| {
-//                                     promise_discard::<R0, E0, ()>(world, id0);
-//                                     promise_discard::<R1, E1, ()>(world, id1);
-//                                 },
-//                             )
-//                         })),
-//                 );
-//             },
-//             move |world, _id| {
-//                 promise_discard::<R0, E0, ()>(world, id0);
-//                 promise_discard::<R1, E1, ()>(world, id1);
-//             },
-//         )
-//     }
-// }
 fn impl_all_promises_internal_for(elements: u8) -> TokenStream {
     let mut in_generics = quote! {};
     let mut for_args = quote! {};
@@ -449,19 +367,18 @@ fn impl_all_promises_internal_for(elements: u8) -> TokenStream {
     for idx in 0..elements + 1 {
         let c = if idx == 0 { quote!() } else { quote!(,) };
         let r = format_ident!("R{idx}");
-        let e = format_ident!("E{idx}");
         let p = format_ident!("p{idx}");
         let id = format_ident!("id{idx}");
         let v = format_ident!("v{idx}");
         let i = TokenStream::from_str(&format!("{idx}")).unwrap();
-        in_generics = quote!(#in_generics #c #r: 'static, #e: 'static);
-        for_args = quote!(#for_args #c Promise<#r, #e, ()>);
+        in_generics = quote!(#in_generics #c #r: 'static);
+        for_args = quote!(#for_args #c Promise<(), #r>);
         type_items = quote!(#type_items #c PromiseId);
-        type_result = quote!(#type_result #c Result<#r, #e>);
+        type_result = quote!(#type_result #c #r);
         promise_idents = quote!(#promise_idents #c #p);
         value_names = quote!(#value_names #c #v);
         value_unwraps = quote!(#value_unwraps #c #v.unwrap() );
-        value_type = quote!(#value_type #c Option<Result<#r,#e>>);
+        value_type = quote!(#value_type #c Option<#r>);
         value_defaults = quote!(#value_defaults #c None);
         promise_id_targets = quote!(#promise_id_targets #c #id);
         promise_id_sources = quote!(#promise_id_sources #c #p.id);
@@ -471,7 +388,7 @@ fn impl_all_promises_internal_for(elements: u8) -> TokenStream {
         };
         discards = quote! {
             #discards
-            promise_discard::<#r, #e, ()>(world, #id);
+            promise_discard::<(), #r>(world, #id);
         };
         if_all_passed = quote! {
             #if_all_passed
@@ -484,19 +401,19 @@ fn impl_all_promises_internal_for(elements: u8) -> TokenStream {
         let i = TokenStream::from_str(&format!("{idx}")).unwrap();
         register = quote! {
             #register
-            promise_register(world, #p.map(move |_| (any_id, #v, #promise_id_targets))
+            promise_register(world, #p.with((any_id, #v, #promise_id_targets))
                 .then(AsynFunction::<_, _, ()>::new(|In((s, r)), ()| {
                     let (any_id, mut value, #promise_id_targets) = s.value.clone();
-                    Promise::<(), (), ()>::register(
+                    Promise::<(), ()>::register(
                         move |world, _id| {
                             value.get_mut().#i = Some(r);
                             if { value.is_valid() && { let value = value.get_ref(); true #if_all_passed }} {
                                 let (#value_names) = value.get();
-                                promise_resolve::<(#type_result), (), ()>(
+                                promise_resolve::<(), (#type_result)>(
                                     world,
                                     any_id,
-                                    (#value_unwraps),
                                     (),
+                                    (#value_unwraps),
                                 );
                             }
                         },
@@ -511,9 +428,8 @@ fn impl_all_promises_internal_for(elements: u8) -> TokenStream {
 
     quote! {
         impl<#in_generics> AllPromises for (#for_args) {
-            // type Items = (#type_items);
             type Result = (#type_result);
-            fn register(self) -> Promise<Self::Result, (), ()> {
+            fn register(self) -> Promise<(), Self::Result> {
                 let (#promise_idents) = self;
                 let (#promise_id_targets) = (#promise_id_sources);
                 let value = MutPtr::<(#value_type)>::new((#value_defaults));

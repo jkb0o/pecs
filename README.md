@@ -11,7 +11,7 @@ Resources:
 - [Provide an idea](https://github.com/jkb0o/pecs/issues/new)
 
 ### Features
-- promise chaining with `then()`, `ok_then()` and `or_else()`
+- promise chaining with `then()`
 - state passing (`state` for promises is like `self` for items)
 - complete type inference (the next promise knows the type of the previous result)
 - out-of-the-box timer and http promises via `asyn` mod and stateful `state.asyn()`
@@ -22,58 +22,56 @@ Resources:
 - combining promises with any/all for tuple/vec of promises via stateles
   `Promise::any()`/`Promise::all()` or stateful `state.any()`/`state.all()`
 - state mapping via `with(value)`/`map(func)` (change state type/value over chain calls)
-- result mapping via `with_ok(value)`/`map_ok(func)` (change Ok type/value over chain calls)
-- error mapping via `with_err(value)`/`map_err(func)` (change Err type over chain calls)
+- result mapping via `with_ok(value)`/`map_ok(func)` (change result type/value over chain calls)
 
 ## Example
 ```rust
-use bevy::{prelude::*, app::AppExit};
-use pecs::prelude::*;
-
-fn main() {
-    App::new()
-        .add_plugins(DefaultPlugins)
-        .add_plugin(PromisePlugin)
-        .add_startup_system(setup)
-        .run();
-}
-
-fn setup(mut commands: Commands) {
-    commands.add(
-        Promise::start(asyn!(state, time: Res<Time> => {
-            info!("Wait a second..");
-            let started_at = time.elapsed_seconds();
-            state.with(started_at).asyn().timeout(1.0)
-        }))
-        .then(asyn!(state, _ => {
-            info!("Looks like I need to know how large is the Bevy main web page!");
-            state.asyn().http().get("https://bevyengine.org").send()
-        }))
-        .then(asyn!(state, result => {
-            match result {
-                Ok(response) => info!("It is {} bytes!", response.bytes.len()),
-                Err(err) => info!("Ahhh... something goes wrong: {err}")
-            }
-            state.done()
-        }))
-        .then(asyn!(state, _, time: Res<Time>, mut exit: EventWriter<AppExit> => {
-            let duration = time.elapsed_seconds() - state.value;
-            info!("It tooks {duration:0.2}s to do this job.");
-            info!("Exiting now");
-            exit.send(AppExit);
-            state.done()
-        }))
-    );
-}
+ use bevy::{app::AppExit, prelude::*};
+ use pecs::prelude::*;
+ fn main() {
+     App::new()
+         .add_plugins(DefaultPlugins)
+         .add_plugin(PecsPlugin)
+         .add_startup_system(setup)
+         .run();
+ }
+ 
+ fn setup(mut commands: Commands) {
+     commands.add(
+         Promise::start(asyn!(state, time: Res<Time> => {
+             info!("Wait a second..");
+             let started_at = time.elapsed_seconds();
+             state.with(started_at).asyn().timeout(1.0)
+         }))
+         .then(asyn!(state, _ => {
+             info!("How large is is the Bevy main web page?");
+             state.asyn().http().get("https://bevyengine.org")
+         }))
+         .then(asyn!(state, result => {
+             match result {
+                 Ok(response) => info!("It is {} bytes!", response.bytes.len()),
+                 Err(err) => info!("Ahhh... something goes wrong: {err}")
+             }
+             state.pass()
+         }))
+         .then(asyn!(state, _, time: Res<Time>, mut exit: EventWriter<AppExit> => {
+             let duration = time.elapsed_seconds() - state.value;
+             info!("It tooks {duration:0.2}s to do this job.");
+             info!("Exiting now");
+             exit.send(AppExit);
+             state.pass()
+         })),
+     );
+ }
 ```
 There is otput of the above example, pay some attention to time stamps:
 ```text
-15:52:20.459635Z  INFO bevy_render::renderer: AdapterInfo { ... }
-15:52:20.643082Z  INFO simple: Wait a second..
-15:52:21.659898Z  INFO simple: Looks like I need to know how large is the Bevy main web page!
-15:52:21.775228Z  INFO simple: It is 17759 bytes!
-15:52:21.775319Z  INFO simple: It tooks 1.13s to do this job.
-15:52:21.775342Z  INFO simple: Exiting now
+18.667 INFO bevy_render::renderer: AdapterInfo { ... }
+18.835 INFO simple: Wait a second..
+19.842 INFO simple: How large is is the Bevy main web page?
+19.924 INFO simple: It is 17759 bytes!
+19.924 INFO simple: It tooks 1.09s to do this job.
+19.924 INFO simple: Exiting now
 ```
 
 ## Work in Progress

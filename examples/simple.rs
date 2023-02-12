@@ -16,7 +16,7 @@ fn setup(mut commands: Commands) {
             state.with(started_at).asyn().timeout(1.0)
         }))
         .then(asyn!(state, _ => {
-            info!("Looks like I need to know how large is the Bevy main web page!");
+            info!("How large is is the Bevy main web page?");
             state.asyn().http().get("https://bevyengine.org")
         }))
         .then(asyn!(state, result => {
@@ -24,14 +24,14 @@ fn setup(mut commands: Commands) {
                 Ok(response) => info!("It is {} bytes!", response.bytes.len()),
                 Err(err) => info!("Ahhh... something goes wrong: {err}")
             }
-            state.done()
+            state.pass()
         }))
         .then(asyn!(state, _, time: Res<Time>, mut exit: EventWriter<AppExit> => {
             let duration = time.elapsed_seconds() - state.value;
             info!("It tooks {duration:0.2}s to do this job.");
             info!("Exiting now");
             exit.send(AppExit);
-            state.done()
+            state.pass()
         })),
     );
 }

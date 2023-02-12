@@ -35,7 +35,7 @@ impl Request {
         self.0.headers.insert(key.to_string(), value.to_string());
         self
     }
-    pub fn send(self) -> Promise<Response, String, ()> {
+    pub fn send(self) -> Promise<(), Result<Response, String>> {
         Promise::register(
             |world, id| {
                 let task = AsyncComputeTaskPool::get().spawn(async move { ehttp::fetch_blocking(&self.0) });
@@ -69,7 +69,7 @@ impl<S: 'static> StatefulRequest<S> {
         self.1 = self.1.body(body);
         self
     }
-    pub fn send(self) -> Promise<ehttp::Response, String, S> {
+    pub fn send(self) -> Promise<S, Result<ehttp::Response, String>> {
         self.1.send().map(move |_| self.0)
         // PromiseResult::Await(self.1.send()).with(self.0)
     }
@@ -103,7 +103,7 @@ pub struct Requests(HashMap<PromiseId, Task<Result<Response, String>>>);
 pub fn process_requests(mut requests: ResMut<Requests>, mut commands: Commands) {
     requests.drain_filter(|promise, mut task| {
         if let Some(response) = future::block_on(future::poll_once(&mut task)) {
-            commands.add(PromiseCommand::result(*promise, response));
+            commands.add(PromiseCommand::resolve(*promise, response));
             true
         } else {
             false
@@ -111,13 +111,13 @@ pub fn process_requests(mut requests: ResMut<Requests>, mut commands: Commands) 
     });
 }
 
-impl From<Request> for PromiseResult<Response, String, ()> {
+impl From<Request> for PromiseResult<(), Result<Response, String>> {
     fn from(value: Request) -> Self {
         PromiseResult::Await(value.send())
     }
 }
 
-impl<S: 'static> From<StatefulRequest<S>> for PromiseResult<Response, String, S> {
+impl<S: 'static> From<StatefulRequest<S>> for PromiseResult<S, Result<Response, String>> {
     fn from(value: StatefulRequest<S>) -> Self {
         PromiseResult::Await(value.send())
     }

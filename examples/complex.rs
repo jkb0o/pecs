@@ -1,7 +1,6 @@
 use bevy::app::AppExit;
 use bevy::prelude::*;
 use pecs::prelude::*;
-use pecs_core::PromisesExtension;
 
 fn main() {
     App::new()
@@ -17,33 +16,25 @@ fn setup(mut commands: Commands) {
         Promise::start(asyn!(s, time: Res<Time> => {
             let t = time.elapsed_seconds();
             info!("start with 31, started at {t}, start time stored in state.");
-            s.map(|_| t).ok(31)
+            s.map(|_| t).resolve(31)
         }))
-        .ok_then(asyn!(s, r => {
+        .then(asyn!(s, r => {
             info!("Continue first time with result: {r}, incrementing");
-            s.ok(r + 1)
+            s.resolve(r + 1)
         }))
-        .ok_then(asyn!(s, r => {
+        .then(asyn!(s, r => {
             info!("Continue second time with result: {r}");
-            if r > 31 {
-                s.reject(format!("{r} actually more then 4-bit"))
-            } else {
-                s.resolve(r + 1)
-            }
+            s.resolve(r)
         }))
-        .or_else(asyn!(s, e => {
-            info!("Looks like smth wrong: {e}");
-            s.ok(31)
-        }))
-        .ok_then(asyn!(s, r => {
+        .then(asyn!(s, r => {
             info!("continue third time with result: {r}");
-            s.asyn().timeout(1.5).with_ok(r + 1)
+            s.asyn().timeout(1.5).with_result(r + 1)
         }))
-        .ok_then(asyn!(s, r => {
+        .then(asyn!(s, r => {
             info!("continue after 1.5 sec delay with {r}");
             s.asyn().timeout(1.5)
         }))
-        .ok_then(asyn!(s, _, mut commands: Commands => {
+        .then(asyn!(s, _, mut commands: Commands => {
             info!("complete after 1.5 sec delay, adding custom command");
             commands.add(|_: &mut World| info!("Executing custom command at the end."));
             let timeout = rand();
@@ -54,7 +45,7 @@ fn setup(mut commands: Commands) {
                 asyn::http::get("https://google.com").send(),
             ))
         }))
-        .ok_then(asyn!(s, (timeout, response) => {
+        .then(asyn!(s, (timeout, response) => {
             if timeout.is_some() {
                 info!("Request timed out");
             } else {
@@ -63,15 +54,15 @@ fn setup(mut commands: Commands) {
                     Err(e) => info!("Respond faster then timeout with error: {e}"),
                 }
             }
-            s.ok(())
+            s.pass()
         }))
-        .ok_then(asyn!(s, _ => {
+        .then(asyn!(s, _ => {
             s.all((
                 asyn::http::get("https://google.com").send(),
                 asyn::http::get("https://bevyengine.org").send(),
             ))
         }))
-        .ok_then(asyn!(s, r => {
+        .then(asyn!(s, r => {
             let (google, bevy) = r;
             if let Ok(google) = google {
                 info!("Google respond with {}", google.status);
@@ -83,9 +74,9 @@ fn setup(mut commands: Commands) {
             } else {
                 info!("Bevy respond error");
             }
-            s.ok(())
+            s.pass()
         }))
-        .ok_then(asyn!(s, _ => {
+        .then(asyn!(s, _ => {
             info!("Requesting any");
             ["https://google.com", "https://bevyengine.org", "https://github.com"]
                 .iter()
@@ -97,15 +88,15 @@ fn setup(mut commands: Commands) {
                 .any()
                 .with(s.value)
         }))
-        .ok_then(asyn!(s, (url, result) => {
+        .then(asyn!(s, (url, result) => {
             let resp = match result {
                 Ok(r) => format!("{}", r.status),
                 Err(e) => e,
             };
             info!("{url} respond faster then others with {resp}");
-            s.ok(())
+            s.pass()
         }))
-        .ok_then(asyn!(s, _ => {
+        .then(asyn!(s, _ => {
             info!("Requesting all");
             ["https://google.com", "https://bevyengine.org", "https://github.com"]
                 .iter()
@@ -118,17 +109,17 @@ fn setup(mut commands: Commands) {
                 .all()
                 .with(s.value)
         }))
-        .ok_then(asyn!(s, r => {
+        .then(asyn!(s, r => {
             info!("Services responded:");
-            for r in r.iter() {
+            for (url, r) in r.iter() {
                 match r {
-                    Ok(r) => info!("  {}", r.status),
-                    Err(e) => info!("  {e}"),
+                    Ok(r) => info!("  {url}: {}", r.status),
+                    Err(e) => info!("  {url}: {e}"),
                 }
             }
-            s.ok(())
+            s.pass()
         }))
-        .ok_then(asyn!(s, _ => {
+        .then(asyn!(s, _ => {
             info!("requesing https://bevyengine.org");
             s.asyn().http().get("https://bevyengine.org")
         }))
@@ -137,26 +128,26 @@ fn setup(mut commands: Commands) {
                 Ok(r) => info!("Bevy respond with {}, body size: {}", r.status, r.bytes.len()),
                 Err(e) => warn!("Error requesting Bevy: {e}"),
             }
-            s.then(log_request("https://google.com")).ok_then(asyn!(|s, r| {
+            s.then(log_request("https://google.com")).then(asyn!(|s, r| {
                 info!("Request done in {r} secs");
-                s.ok(())
+                s.pass()
             }))
         }))
-        .ok_then(asyn!(s, _, time: Res<Time>, mut exit: EventWriter<AppExit> => {
+        .then(asyn!(s, _, time: Res<Time>, mut exit: EventWriter<AppExit> => {
             info!(
                 "Done, time to process: {} (start time took from state {}",
                 time.elapsed_seconds() - s.value,
                 s
             );
             exit.send(AppExit);
-            s.ok(())
+            s.pass()
         })),
     );
 }
 
 /// Returns a promise that requests `url`, logs the process
 /// and resolves with seconds spent to complete requests as `f32`
-fn log_request(url: &'static str) -> Promise<f32, (), ()> {
+fn log_request(url: &'static str) -> Promise<(), f32> {
     Promise::new(
         url,
         asyn!(|s, time: Res<Time>| {
@@ -172,7 +163,7 @@ fn log_request(url: &'static str) -> Promise<f32, (), ()> {
             Err(e) => warn!("Error requesting {}: {e}", s.value.0),
         }
         let duration = time.elapsed_seconds() - s.value.1;
-        s.map(|_| ()).ok(duration)
+        s.map(|_| ()).resolve(duration)
     }))
 }
 

@@ -15,7 +15,7 @@ fn main() {
 pub struct MyTimer(PromiseId, f32);
 
 /// creates promise that will resolve after [`duration`] seconds
-pub fn delay(duration: f32) -> Promise<(), (), ()> {
+pub fn delay(duration: f32) -> Promise<(), ()> {
     Promise::register(
         // this will be invoked when promise's turn comes
         move |world, id| {
@@ -45,7 +45,7 @@ pub fn process_timers_system(timers: Query<(Entity, &MyTimer)>, mut commands: Co
     let now = time.elapsed_seconds();
     for (entity, timer) in timers.iter().filter(|(_, t)| t.1 < now) {
         let promise_id = timer.0;
-        commands.promise(promise_id).ok(());
+        commands.promise(promise_id).resolve(());
         commands.entity(entity).despawn();
     }
 }
@@ -59,13 +59,13 @@ fn setup(mut commands: Commands) {
         }))
         .then(asyn!(s, _ => {
             info!("Completing");
-            s.done()
+            s.pass()
         })),
     );
 
     // or queued directly to Commands
     commands.add(delay(2.).then(asyn!(s, _ => {
         info!("I'm another timer");
-        s.done()
+        s.pass()
     })));
 }
