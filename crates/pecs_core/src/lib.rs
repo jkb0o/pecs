@@ -13,6 +13,8 @@ use std::{
     sync::{Arc, RwLock},
     thread::{self, ThreadId},
 };
+pub mod timer;
+pub mod app;
 
 pub struct AsyncOps<T>(pub T);
 
@@ -500,46 +502,6 @@ pub trait PromiseCommandsExtension<'w, 's> {
 impl<'w, 's> PromiseCommandsExtension<'w, 's> for Commands<'w, 's> {
     fn promise<'a>(&'a mut self, id: PromiseId) -> PromiseCommands<'w, 's, 'a> {
         PromiseCommands { id, commands: self }
-    }
-}
-
-pub mod timer {
-    //! Defers promise resolving for a fixed amount of time
-    use super::*;
-    pub fn timeout(duration: f32) -> Promise<(), ()> {
-        Promise::<(), ()>::register(
-            move |world, id| {
-                let time = world.resource::<Time>();
-                let end = time.elapsed_seconds() + duration - time.delta_seconds();
-                world.resource_mut::<Timers>().insert(id, end);
-            },
-            move |world, id| {
-                world.resource_mut::<Timers>().remove(&id);
-            },
-        )
-    }
-    pub trait TimerOpsExtension<S> {
-        fn timeout(self, duration: f32) -> Promise<S, ()>;
-    }
-    impl<S: 'static> TimerOpsExtension<S> for AsyncOps<S> {
-        fn timeout(self, duration: f32) -> Promise<S, ()> {
-            timeout(duration).map(|_| self.0)
-        }
-    }
-
-    #[derive(Resource, Deref, DerefMut, Default)]
-    pub struct Timers(HashMap<PromiseId, f32>);
-
-    pub fn process_timers(time: Res<Time>, mut commands: Commands, mut timers: ResMut<Timers>) {
-        let elapsed = time.elapsed_seconds();
-        timers.drain_filter(|promise, end| {
-            if &elapsed >= end {
-                commands.add(PromiseCommand::resolve(*promise, ()));
-                true
-            } else {
-                false
-            }
-        });
     }
 }
 

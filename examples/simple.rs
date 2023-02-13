@@ -1,4 +1,4 @@
-use bevy::{app::AppExit, prelude::*};
+use bevy::prelude::*;
 use pecs::prelude::*;
 fn main() {
     App::new()
@@ -26,12 +26,11 @@ fn setup(mut commands: Commands) {
             }
             state.pass()
         }))
-        .then(asyn!(state, _, time: Res<Time>, mut exit: EventWriter<AppExit> => {
+        .then(asyn!(state, _, time: Res<Time> => {
             let duration = time.elapsed_seconds() - state.value;
             info!("It tooks {duration:0.2}s to do this job.");
             info!("Exiting now");
-            exit.send(AppExit);
-            state.pass()
-        })),
+            asyn::app::exit()
+        }))
     );
 }

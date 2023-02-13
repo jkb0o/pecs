@@ -1,4 +1,4 @@
-use bevy::{app::AppExit, prelude::*};
+use bevy::prelude::*;
 use pecs::prelude::*;
 fn main() {
     App::new()
@@ -166,10 +166,9 @@ fn setup(mut commands: Commands) {
             state.pass()
         }))
         // close app at the end
-        .then(asyn!(_, _,  mut exit: EventWriter<AppExit> => {
+        .then(asyn!(_, _ => {
             info!("See you!");
-            exit.send(AppExit);
-            Promise::pass()
+            asyn::app::exit()
         })),
     );
 }
