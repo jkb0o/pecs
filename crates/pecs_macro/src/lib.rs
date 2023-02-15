@@ -157,7 +157,7 @@ impl AsynFunc {
         
         let input = match (&self.state, &self.result) {
             (None, None) => quote! { _ },
-            (Some(state), None) => quote! { #mutable #state },
+            (Some(state), None) => quote! { (#mutable #state, _) },
             (Some(state), Some(result)) => quote!{ (#mutable #state, #result) },
             _ => panic!("Invlid state/result arguments")
         };

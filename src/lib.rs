@@ -376,16 +376,16 @@ pub mod prelude {
     #[doc(inline)]
     pub use pecs_core::PromiseId;
     #[doc(inline)]
-    pub use pecs_core::Loop;
+    pub use pecs_core::Repeat;
 
 
     // traits
     #[doc(inline)]
     pub use pecs_core::timer::TimerOpsExtension;
     #[doc(inline)]
-    pub use pecs_core::PromiseCommandsExtension;
+    pub use pecs_core::ui::UiOpsExtension;
     #[doc(inline)]
-    pub use pecs_core::PromiseStateWithEmptyResult;
+    pub use pecs_core::PromiseCommandsExtension;
     #[doc(inline)]
     pub use pecs_core::PromisesExtension;
     #[doc(inline)]
@@ -407,6 +407,7 @@ pub mod prelude {
             app.add_system(pecs_core::timer::process_timers);
 
             app.add_plugin(pecs_http::PromiseHttpPlugin);
+            app.add_plugin(pecs_core::ui::PromiseUiPlugin);
         }
     }
 
@@ -416,6 +417,8 @@ pub mod prelude {
         pub use pecs_core::app;
         #[doc(inline)]
         pub use pecs_core::timer::timeout;
+        #[doc(inline)]
+        pub use pecs_core::ui::asyn as ui;
         #[doc(inline)]
         pub use pecs_http::asyn as http;
     }

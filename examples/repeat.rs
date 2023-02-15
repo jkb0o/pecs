@@ -17,9 +17,9 @@ fn setup(mut commands: Commands) {
                 state.value += 1;
                 let iterations = state.value;
                 state.asyn().timeout(1.).with_result(if iterations > 3 {
-                    Loop::Break("Done!")
+                    Repeat::Break("Done!")
                 } else {
-                    Loop::Continue
+                    Repeat::Continue
                 })
             }),
         )

@@ -15,6 +15,7 @@ use std::{
 };
 pub mod app;
 pub mod timer;
+pub mod ui;
 
 pub struct AsyncOps<T>(pub T);
 
@@ -237,14 +238,14 @@ impl<In, Out, Params: PromiseParams> Default for SystemRegistry<In, Out, Params>
     }
 }
 
-pub enum Loop<R> {
+pub enum Repeat<R> {
     Continue,
     Break(R),
 }
 
-impl Loop<()> {
+impl Repeat<()> {
     pub fn infinity() -> Self {
-        Loop::Continue
+        Repeat::Continue
     }
 }
 
@@ -256,6 +257,32 @@ pub struct Promise<S, R> {
 }
 unsafe impl<S, R> Send for Promise<S, R> {}
 unsafe impl<S, R> Sync for Promise<S, R> {}
+
+impl<S: 'static> Promise<S, ()> {
+    /// Create new [`Promise<S, ()>`] from state `S`:
+    /// ```rust
+    /// fn setup(mut commands: Commands) {
+    ///     commands.add(
+    ///         Promise::from(0)
+    ///             .then(asyn!(state => {
+    ///                 state.value += 1;
+    ///                 state
+    ///             }))
+    ///             .then(asyn!(state => {
+    ///                 state.value += 1;
+    ///                 state
+    ///             }))
+    ///             .then(asyn!(state => {
+    ///                 state.value += 1;
+    ///                 info!("There was {} calls in the chain", state.value);
+    ///             })),
+    ///     );
+    /// }
+    /// ```
+    pub fn from(state: S) -> Promise<S, ()> {
+        Self::new(state, asyn!(s => s))
+    }
+}
 
 impl<S: 'static, R: 'static> Promise<S, R> {
     /// Create new [`Promise`] with empty [state][PromiseState]
@@ -271,8 +298,7 @@ impl<S: 'static, R: 'static> Promise<S, R> {
     ///     );
     /// }
     /// ```
-    pub fn start<Params: PromiseParams, P: 'static + Into<PromiseResult<S, R>>>(
-        func: AsynFunction<PromiseState<()>, P, Params>,
+    pub fn start(func: Asyn![() => S, R]
     ) -> Promise<S, R> {
         Promise::new((), func)
     }
@@ -294,7 +320,6 @@ impl<S: 'static, R: 'static> Promise<S, R> {
     /// ```
     pub fn new<D: 'static>(default_state: D, func: Asyn![D => S, R]) -> Promise<S, R> {
         let id = PromiseId::new();
-        // let default = OnceValue::new(default_state);
         Promise {
             id,
             resolve: None,
@@ -306,7 +331,7 @@ impl<S: 'static, R: 'static> Promise<S, R> {
                 // let pr = system.run(PromiseState::new(default_state), world).into();
                 // system.apply_buffers(world);
                 // let pr = world.run_promise_system(func, PromiseState::new(default_state)).into();
-                let pr = func.run(PromiseState::new(default_state), world).into();
+                let pr = func.run((PromiseState::new(default_state), ()), world).into();
                 match pr {
                     PromiseResult::Resolve(s, r) => promise_resolve::<S, R>(world, id, s, r),
                     PromiseResult::Await(mut p) => {
@@ -405,9 +430,13 @@ impl<S: 'static, R: 'static> Promise<S, R> {
         }
     }
 
-    /// Create new [`Promise<S, R>`] from default `S` state and  [`Asyn!`]`[D => S,`[`Loop<R>`]`]` func.
+    /// Create new [`Promise<S, R>`] from default `S` state and  [`Asyn!`]`[D => S,`[`Repeat<R>`]`]` func.
     /// `S` and `R` infers from the [`Asyn`] function body.
-    pub fn repeat(state: S, func: Asyn![S => S, Loop<R>]) -> Promise<S, R> {
+    /// 
+    /// If `func` resolves with `Repeat::Continue` it executes one more time.
+    /// If `func` resolves with `Repeat::Break(result)`, the loop stops and 
+    /// `result` passes to the next promise.
+    pub fn repeat(state: S, func: Asyn![S => S, Repeat<R>]) -> Promise<S, R> {
         Promise::new(
             (state, func),
             asyn!(s => {
@@ -416,8 +445,8 @@ impl<S: 'static, R: 'static> Promise<S, R> {
                 Promise::new(state, func).map(|state| (state, next)).then(asyn!(s, r => {
                     let (state, next) = s.value;
                     match r {
-                        Loop::Continue => PromiseResult::Await(Promise::repeat(state, next)),
-                        Loop::Break(result) => PromiseResult::Resolve(state, result)
+                        Repeat::Continue => PromiseResult::Await(Promise::repeat(state, next)),
+                        Repeat::Break(result) => PromiseResult::Resolve(state, result)
                     }
                 }))
             }),
@@ -481,7 +510,6 @@ pub struct RegisterPromise<R> {
 pub trait PromiseCommandsArg {}
 impl PromiseCommandsArg for PromiseId {}
 impl<S: 'static, R: 'static> PromiseCommandsArg for Promise<S, R> {}
-// impl<S: 'static, F: FnOnce() -> S> PromiseCommandsArg for F {}
 
 pub struct PromiseCommands<'w, 's, 'a, T> {
     data: Option<T>,
@@ -624,48 +652,15 @@ impl<S: std::fmt::Display> std::fmt::Display for PromiseState<S> {
     }
 }
 
-pub trait PromiseStateWithEmptyResult<S: 'static> where Self: Sized {
-    fn to_state(state: Self) -> PromiseState<S>;
-    fn asyn(self) -> AsyncOps<S> {
-        let s = Self::to_state(self);
-        AsyncOps(s.value)
-    }
-    fn resolve<R>(self, result: R) -> PromiseResult<S, R> {
-        let s = Self::to_state(self);
-        PromiseResult::Resolve(s.value, result)
-    }
-    fn pass(self) -> PromiseResult<S, ()> {
-        let s = Self::to_state(self);
-        PromiseResult::Resolve(s.value, ())
-    }
-    fn map<T, F: FnOnce(S) -> T>(self, map: F) -> PromiseState<T> {
-        let s = Self::to_state(self);
-        PromiseState { value: map(s.value) }
-    }
-
-    fn with<T: 'static>(self, value: T) -> PromiseState<T> {
-        PromiseState { value }
-    }
-
-    fn then<R: 'static, S2: 'static>(self, promise: Promise<S2, R>) -> Promise<S, R> {
-        let s = Self::to_state(self);
-        promise.with(s.value)
-    }
-
-    fn any<A: AnyPromises>(self, any: A) -> Promise<S, A::Result> {
-        let s = Self::to_state(self);
-        any.register().with(s.value)
-    }
-
-    fn all<A: AllPromises>(self, all: A) -> Promise<S, A::Result> {
-        let s = Self::to_state(self);
-        all.register().with(s.value)
+impl<S: 'static> std::ops::Deref for PromiseState<S> {
+    type Target = S;
+    fn deref(&self) -> &Self::Target {
+        &self.value
     }
 }
-
-impl<S: 'static> PromiseStateWithEmptyResult<S> for (PromiseState<S>, ()) {
-    fn to_state(state: Self) -> PromiseState<S> {
-        state.0
+impl<S: 'static> std::ops::DerefMut for PromiseState<S> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.value
     }
 }
 
@@ -809,7 +804,7 @@ impl_all_promises! { 8 }
 #[macro_export]
 macro_rules! Asyn {
     ($is:ty => $os:ty, $or:ty) => {
-        $crate::AsynFunction<$crate::PromiseState<$is>, impl 'static + Into<$crate::PromiseResult<$os, $or>>, impl $crate::PromiseParams>
+        $crate::AsynFunction<($crate::PromiseState<$is>, ()), impl 'static + Into<$crate::PromiseResult<$os, $or>>, impl $crate::PromiseParams>
     };
     ($is:ty, $ir:ty => $os:ty, $or:ty) => {
         $crate::AsynFunction<($crate::PromiseState<$is>, $ir), impl 'static + Into<$crate::PromiseResult<$os, $or>>, impl $crate::PromiseParams>
@@ -845,7 +840,7 @@ pub trait PromiseLike<S: 'static, R: 'static> {
 
     /// Create new [`PromiseLike<S, R2>`] from default `S` state and  [`Asyn!`]`[D => S,`[`Loop<R>`]`]` func.
     /// `R2` infers from the `func` body.
-    fn then_repeat<R2: 'static>(self, func: Asyn![S => S, Loop<R2>]) -> Self::Promise<S, R2>;
+    fn then_repeat<R2: 'static>(self, func: Asyn![S => S, Repeat<R2>]) -> Self::Promise<S, R2>;
 
     /// Create new [`PromiseLike<S, R>`] from previouse promise with result mapped from `R` to `R2`
     fn map_result<R2: 'static, F: 'static + FnOnce(R) -> R2>(self, map: F) -> Self::Promise<S, R2>;
@@ -904,7 +899,7 @@ impl<S: 'static, R: 'static> PromiseLike<S, R> for Promise<S, R> {
         }
     }
 
-    fn then_repeat<R2: 'static>(self, func: Asyn![S => S, Loop<R2>]) -> Self::Promise<S, R2> {
+    fn then_repeat<R2: 'static>(self, func: Asyn![S => S, Repeat<R2>]) -> Self::Promise<S, R2> {
         self.map(|state| (state, func)).then(asyn!(s, _ => {
             let (state, func) = s.value;
             Promise::repeat(state, func)
@@ -969,7 +964,7 @@ impl<S: 'static, R: 'static> PromiseLike<S, R> for Promise<S, R> {
 
 impl<'w, 's, 'a, S: 'static, F: FnOnce() -> S> PromiseLike<S, ()> for PromiseCommands<'w, 's, 'a, F> {
     type Promise<S2: 'static, R2: 'static> = PromiseChain<'w, 's, 'a, S2, R2>;
-    fn then<S2: 'static, R2: 'static>(mut self, func: Asyn![S, () => S2, R2]) -> Self::Promise<S2, R2> {
+    fn then<S2: 'static, R2: 'static>(mut self, func: Asyn![S => S2, R2]) -> Self::Promise<S2, R2> {
         let commands = mem::take(&mut self.commands);
         let new_state = mem::take(&mut self.data).unwrap(); 
         PromiseChain {
@@ -977,7 +972,7 @@ impl<'w, 's, 'a, S: 'static, F: FnOnce() -> S> PromiseLike<S, ()> for PromiseCom
             promise: Some(Promise::new(new_state(), asyn!(s => s)).then(func)),
         }
     }
-    fn then_repeat<R2: 'static>(mut self, func: Asyn![S => S, Loop<R2>]) -> Self::Promise<S, R2> {
+    fn then_repeat<R2: 'static>(mut self, func: Asyn![S => S, Repeat<R2>]) -> Self::Promise<S, R2> {
         let commands = mem::take(&mut self.commands);
         let new_state = mem::take(&mut self.data).unwrap(); 
         PromiseChain {
@@ -1025,7 +1020,7 @@ impl<'w, 's, 'a, S: 'static, R: 'static> PromiseLike<S, R> for PromiseCommands<'
             promise: Some(promise.then(func)),
         }
     }
-    fn then_repeat<R2: 'static>(mut self, func: Asyn![S => S, Loop<R2>]) -> Self::Promise<S, R2> {
+    fn then_repeat<R2: 'static>(mut self, func: Asyn![S => S, Repeat<R2>]) -> Self::Promise<S, R2> {
         let commands = mem::take(&mut self.commands);
         let promise = mem::take(&mut self.data).unwrap(); 
         PromiseChain {
@@ -1067,7 +1062,7 @@ impl<'w, 's, 'a, S: 'static, R: 'static> PromiseLike<S, R> for PromiseChain<'w, 
             promise: Some(promise.then(func)),
         }
     }
-    fn then_repeat<R2: 'static>(mut self, func: Asyn![S => S, Loop<R2>]) -> Self::Promise<S, R2> {
+    fn then_repeat<R2: 'static>(mut self, func: Asyn![S => S, Repeat<R2>]) -> Self::Promise<S, R2> {
         let commands = mem::take(&mut self.commands).unwrap();
         let promise = mem::take(&mut self.promise).unwrap();
         PromiseChain {
