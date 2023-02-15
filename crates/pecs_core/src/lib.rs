@@ -1,6 +1,6 @@
 //! Core [`Promise`] functionality.
 use bevy::{
-    ecs::system::{Command, SystemParam, SystemParamItem, BoxedSystem},
+    ecs::system::{BoxedSystem, Command, SystemParam, SystemParamItem},
     prelude::*,
     utils::HashMap,
 };
@@ -118,9 +118,7 @@ impl<Input, Output, Params: PromiseParams> PartialEq for AsynFunction<Input, Out
         self.ptr() == other.ptr()
     }
 }
-impl<Input, Output, Params: PromiseParams> Eq for AsynFunction<Input, Output, Params> {
-    
-}
+impl<Input, Output, Params: PromiseParams> Eq for AsynFunction<Input, Output, Params> {}
 impl<Input, Output, Params: PromiseParams> std::hash::Hash for AsynFunction<Input, Output, Params> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.ptr().hash(state)
@@ -139,7 +137,9 @@ impl<Input, Output, Params: PromiseParams> AsynFunction<Input, Output, Params> {
 }
 impl<Input: 'static, Output: 'static, Params: PromiseParams> AsynFunction<Input, Output, Params> {
     pub fn run(&self, input: Input, world: &mut World) -> Output {
-        let registry = world.get_resource_or_insert_with(SystemRegistry::<Input, Output, Params>::default).clone();
+        let registry = world
+            .get_resource_or_insert_with(SystemRegistry::<Input, Output, Params>::default)
+            .clone();
         let mut write = registry.0.write().unwrap();
         let key = self.clone();
         let system = write.entry(key).or_insert_with(|| {
@@ -152,7 +152,6 @@ impl<Input: 'static, Output: 'static, Params: PromiseParams> AsynFunction<Input,
         result
     }
 }
-
 
 thread_local!(static PROMISE_LOCAL_ID: std::cell::RefCell<usize>  = RefCell::new(0));
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -226,7 +225,9 @@ impl<S, R> Clone for PromiseRegistry<S, R> {
 }
 
 #[derive(Resource)]
-struct SystemRegistry<In, Out, Params: PromiseParams>(Arc<RwLock<HashMap<AsynFunction<In, Out, Params>, BoxedSystem<In, Out>>>>);
+struct SystemRegistry<In, Out, Params: PromiseParams>(
+    Arc<RwLock<HashMap<AsynFunction<In, Out, Params>, BoxedSystem<In, Out>>>>,
+);
 impl<In, Out, Params: PromiseParams> Clone for SystemRegistry<In, Out, Params> {
     fn clone(&self) -> Self {
         SystemRegistry(self.0.clone())
@@ -298,8 +299,7 @@ impl<S: 'static, R: 'static> Promise<S, R> {
     ///     );
     /// }
     /// ```
-    pub fn start(func: Asyn![() => S, R]
-    ) -> Promise<S, R> {
+    pub fn start(func: Asyn![() => S, R]) -> Promise<S, R> {
         Promise::new((), func)
     }
     /// Create new [`Promise<S, R>`] from default `D` state and
@@ -432,9 +432,9 @@ impl<S: 'static, R: 'static> Promise<S, R> {
 
     /// Create new [`Promise<S, R>`] from default `S` state and  [`Asyn!`]`[D => S,`[`Repeat<R>`]`]` func.
     /// `S` and `R` infers from the [`Asyn`] function body.
-    /// 
+    ///
     /// If `func` resolves with `Repeat::Continue` it executes one more time.
-    /// If `func` resolves with `Repeat::Break(result)`, the loop stops and 
+    /// If `func` resolves with `Repeat::Break(result)`, the loop stops and
     /// `result` passes to the next promise.
     pub fn repeat(state: S, func: Asyn![S => S, Repeat<R>]) -> Promise<S, R> {
         Promise::new(
@@ -514,7 +514,7 @@ impl<S: 'static, R: 'static> PromiseCommandsArg for Promise<S, R> {}
 pub struct PromiseCommands<'w, 's, 'a, T> {
     data: Option<T>,
     commands: Option<&'a mut Commands<'w, 's>>,
-    finally: Option<fn(&'a mut Commands<'w, 's>, T)>
+    finally: Option<fn(&'a mut Commands<'w, 's>, T)>,
 }
 impl<'w, 's, 'a> PromiseCommands<'w, 's, 'a, PromiseId> {
     pub fn resolve<R: 'static + Send + Sync>(&mut self, value: R) {
@@ -542,7 +542,7 @@ pub trait PromiseCommandsExtension<'w, 's, T> {
 }
 
 impl<'w, 's, S: 'static, F: FnOnce() -> S> PromiseCommandsExtension<'w, 's, F> for Commands<'w, 's> {
-    /// Create [`PromiseLike<S, ()>`] chainable commands from default state `S` 
+    /// Create [`PromiseLike<S, ()>`] chainable commands from default state `S`
     fn promise<'a>(&'a mut self, arg: F) -> PromiseCommands<'w, 's, 'a, F> {
         PromiseCommands {
             data: Some(arg),
@@ -569,18 +569,15 @@ impl<'w, 's, S: 'static, R: 'static> PromiseCommandsExtension<'w, 's, Promise<S,
         PromiseCommands {
             data: Some(arg),
             commands: Some(self),
-            finally: Some(|commands, promise| commands.add(promise))
+            finally: Some(|commands, promise| commands.add(promise)),
         }
     }
 }
-
 
 pub struct PromiseChain<'w, 's, 'a, S: 'static, R: 'static> {
     commands: Option<&'a mut Commands<'w, 's>>,
     promise: Option<Promise<S, R>>,
 }
-
-
 
 impl<'w, 's, 'a, S: 'static, R: 'static> Drop for PromiseChain<'w, 's, 'a, S, R> {
     fn drop(&mut self) {
@@ -663,7 +660,6 @@ impl<S: 'static> std::ops::DerefMut for PromiseState<S> {
         &mut self.value
     }
 }
-
 
 impl<T: std::fmt::Debug> std::fmt::Debug for PromiseState<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -831,7 +827,6 @@ impl<S: 'static, R: 'static, I: Iterator<Item = Promise<S, R>>> PromisesExtensio
     }
 }
 
-
 pub trait PromiseLike<S: 'static, R: 'static> {
     type Promise<S2: 'static, R2: 'static>;
     /// Schedule the next [`Asyn![S, R => S2, R2]`][Asyn!] func invocation after current promise resolve.
@@ -844,7 +839,7 @@ pub trait PromiseLike<S: 'static, R: 'static> {
 
     /// Create new [`PromiseLike<S, R>`] from previouse promise with result mapped from `R` to `R2`
     fn map_result<R2: 'static, F: 'static + FnOnce(R) -> R2>(self, map: F) -> Self::Promise<S, R2>;
-    
+
     /// Create new [`PromiseLike<S, R2>`] from previouse promise with new result `R2`
     fn with_result<R2: 'static>(self, value: R2) -> Self::Promise<S, R2>;
 
@@ -958,7 +953,7 @@ impl<S: 'static, R: 'static> PromiseLike<S, R> for Promise<S, R> {
         }
     }
     fn with<S2: 'static>(self, state: S2) -> Self::Promise<S2, R> {
-        self.map(|_|state)
+        self.map(|_| state)
     }
 }
 
@@ -966,7 +961,7 @@ impl<'w, 's, 'a, S: 'static, F: FnOnce() -> S> PromiseLike<S, ()> for PromiseCom
     type Promise<S2: 'static, R2: 'static> = PromiseChain<'w, 's, 'a, S2, R2>;
     fn then<S2: 'static, R2: 'static>(mut self, func: Asyn![S => S2, R2]) -> Self::Promise<S2, R2> {
         let commands = mem::take(&mut self.commands);
-        let new_state = mem::take(&mut self.data).unwrap(); 
+        let new_state = mem::take(&mut self.data).unwrap();
         PromiseChain {
             commands,
             promise: Some(Promise::new(new_state(), asyn!(s => s)).then(func)),
@@ -974,24 +969,24 @@ impl<'w, 's, 'a, S: 'static, F: FnOnce() -> S> PromiseLike<S, ()> for PromiseCom
     }
     fn then_repeat<R2: 'static>(mut self, func: Asyn![S => S, Repeat<R2>]) -> Self::Promise<S, R2> {
         let commands = mem::take(&mut self.commands);
-        let new_state = mem::take(&mut self.data).unwrap(); 
+        let new_state = mem::take(&mut self.data).unwrap();
         PromiseChain {
             commands,
-            promise: Some(Promise::repeat(new_state(), func))
+            promise: Some(Promise::repeat(new_state(), func)),
         }
     }
     fn map_result<R2: 'static, M: 'static + FnOnce(()) -> R2>(mut self, map: M) -> Self::Promise<S, R2> {
         let commands = mem::take(&mut self.commands);
-        let new_state = mem::take(&mut self.data).unwrap(); 
+        let new_state = mem::take(&mut self.data).unwrap();
         PromiseChain {
             commands,
             promise: Some(Promise::new(
-                (new_state(), map(())), 
+                (new_state(), map(())),
                 asyn!(s => {
                     let (state, result) = s.value;
                     PromiseResult::Resolve(state, result)
-                })
-            ))
+                }),
+            )),
         }
     }
     fn with_result<R2: 'static>(self, value: R2) -> Self::Promise<S, R2> {
@@ -999,7 +994,7 @@ impl<'w, 's, 'a, S: 'static, F: FnOnce() -> S> PromiseLike<S, ()> for PromiseCom
     }
     fn map<S2: 'static, M: 'static + FnOnce(S) -> S2>(mut self, map: M) -> Self::Promise<S2, ()> {
         let commands = mem::take(&mut self.commands);
-        let new_state = mem::take(&mut self.data).unwrap(); 
+        let new_state = mem::take(&mut self.data).unwrap();
         PromiseChain {
             commands: commands,
             promise: Some(Promise::new(map(new_state()), asyn!(s => s))),
@@ -1014,7 +1009,7 @@ impl<'w, 's, 'a, S: 'static, R: 'static> PromiseLike<S, R> for PromiseCommands<'
     type Promise<S2: 'static, R2: 'static> = PromiseChain<'w, 's, 'a, S2, R2>;
     fn then<S2: 'static, R2: 'static>(mut self, func: Asyn![S, R => S2, R2]) -> Self::Promise<S2, R2> {
         let commands = mem::take(&mut self.commands);
-        let promise = mem::take(&mut self.data).unwrap(); 
+        let promise = mem::take(&mut self.data).unwrap();
         PromiseChain {
             commands,
             promise: Some(promise.then(func)),
@@ -1022,7 +1017,7 @@ impl<'w, 's, 'a, S: 'static, R: 'static> PromiseLike<S, R> for PromiseCommands<'
     }
     fn then_repeat<R2: 'static>(mut self, func: Asyn![S => S, Repeat<R2>]) -> Self::Promise<S, R2> {
         let commands = mem::take(&mut self.commands);
-        let promise = mem::take(&mut self.data).unwrap(); 
+        let promise = mem::take(&mut self.data).unwrap();
         PromiseChain {
             commands,
             promise: Some(promise.then_repeat(func)),
@@ -1030,7 +1025,7 @@ impl<'w, 's, 'a, S: 'static, R: 'static> PromiseLike<S, R> for PromiseCommands<'
     }
     fn map_result<R2: 'static, F: 'static + FnOnce(R) -> R2>(mut self, map: F) -> Self::Promise<S, R2> {
         let commands = mem::take(&mut self.commands);
-        let promise = mem::take(&mut self.data).unwrap(); 
+        let promise = mem::take(&mut self.data).unwrap();
         PromiseChain {
             commands,
             promise: Some(promise.map_result(map)),
@@ -1041,7 +1036,7 @@ impl<'w, 's, 'a, S: 'static, R: 'static> PromiseLike<S, R> for PromiseCommands<'
     }
     fn map<S2: 'static, F: 'static + FnOnce(S) -> S2>(mut self, m: F) -> Self::Promise<S2, R> {
         let commands = mem::take(&mut self.commands);
-        let promise = mem::take(&mut self.data).unwrap(); 
+        let promise = mem::take(&mut self.data).unwrap();
         PromiseChain {
             commands,
             promise: Some(promise.map(m)),

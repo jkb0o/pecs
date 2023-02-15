@@ -1,10 +1,10 @@
 use bevy::prelude::*;
 
-use crate::{Promise, PromiseId, PromiseCommandsExtension, PromiseLike, AsyncOps};
+use crate::{AsyncOps, Promise, PromiseCommandsExtension, PromiseId, PromiseLike};
 
 pub mod asyn {
-    use bevy::prelude::Entity;
     use super::AsynButton;
+    use bevy::prelude::Entity;
 
     pub fn button(entity: Entity) -> AsynButton {
         AsynButton(entity)
@@ -16,7 +16,6 @@ impl Plugin for PromiseUiPlugin {
     fn build(&self, app: &mut App) {
         app.add_system(resolve_buttons);
     }
-
 }
 
 pub struct StatefulAsynUi<S>(S);
@@ -26,12 +25,11 @@ impl<S: 'static> StatefulAsynUi<S> {
     }
 }
 
-
 #[derive(Component)]
 pub struct AsynButtonIteraction {
     promise: PromiseId,
     interaction: Interaction,
-    entity: Entity
+    entity: Entity,
 }
 
 pub struct AsynButton(Entity);
@@ -48,7 +46,8 @@ impl AsynButton {
                 });
             },
             move |world, id| {
-                if let Some(despawn) = world.query::<(Entity, &AsynButtonIteraction)>()
+                if let Some(despawn) = world
+                    .query::<(Entity, &AsynButtonIteraction)>()
                     .iter(world)
                     .filter(|(_, b)| b.promise == id)
                     .map(|(e, _)| e)
@@ -56,7 +55,7 @@ impl AsynButton {
                 {
                     world.despawn(despawn);
                 }
-            }
+            },
         )
     }
 }
@@ -80,7 +79,7 @@ impl<S: 'static> UiOpsExtension<S> for AsyncOps<S> {
 fn resolve_buttons(
     mut commands: Commands,
     buttons: Query<(Entity, &AsynButtonIteraction)>,
-    interactions: Query<(Entity, &Interaction), (Changed<Interaction>, With<Button>)>
+    interactions: Query<(Entity, &Interaction), (Changed<Interaction>, With<Button>)>,
 ) {
     for (btn, interaction) in interactions.iter() {
         if let Some((entity, btn)) = buttons

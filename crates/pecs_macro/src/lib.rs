@@ -141,25 +141,22 @@ impl AsynFunc {
             "_".to_string()
         };
         let state_str = state_str.trim();
-        let mutable = if false
-            || state_str.starts_with("_")
-            || state_str.starts_with("mut ")
-            || state_str.starts_with("(") 
-        {
-            quote! {}
-        } else {
-            quote! { mut }
-        };
+        let mutable =
+            if false || state_str.starts_with("_") || state_str.starts_with("mut ") || state_str.starts_with("(") {
+                quote! {}
+            } else {
+                quote! { mut }
+            };
 
         if self.force_loop {
             asyn_spec = quote!(::<#core::PromiseState<_>, #core::PromiseResult<_, #core::Loop<_>>, _>);
         }
-        
+
         let input = match (&self.state, &self.result) {
             (None, None) => quote! { _ },
             (Some(state), None) => quote! { (#mutable #state, _) },
-            (Some(state), Some(result)) => quote!{ (#mutable #state, #result) },
-            _ => panic!("Invlid state/result arguments")
+            (Some(state), Some(result)) => quote! { (#mutable #state, #result) },
+            _ => panic!("Invlid state/result arguments"),
         };
         let body = &self.body;
         quote! {
@@ -482,4 +479,3 @@ fn impl_all_promises_internal_for(elements: u8) -> TokenStream {
         }
     }
 }
-

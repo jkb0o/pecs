@@ -378,7 +378,6 @@ pub mod prelude {
     #[doc(inline)]
     pub use pecs_core::Repeat;
 
-
     // traits
     #[doc(inline)]
     pub use pecs_core::timer::TimerOpsExtension;
@@ -387,9 +386,9 @@ pub mod prelude {
     #[doc(inline)]
     pub use pecs_core::PromiseCommandsExtension;
     #[doc(inline)]
-    pub use pecs_core::PromisesExtension;
-    #[doc(inline)]
     pub use pecs_core::PromiseLike;
+    #[doc(inline)]
+    pub use pecs_core::PromisesExtension;
     #[doc(inline)]
     pub use pecs_http::HttpOpsExtension;
 
