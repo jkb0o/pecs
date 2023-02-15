@@ -245,7 +245,7 @@ pub enum Repeat<R> {
 }
 
 impl Repeat<()> {
-    pub fn infinity() -> Self {
+    pub fn forever() -> Self {
         Repeat::Continue
     }
 }
