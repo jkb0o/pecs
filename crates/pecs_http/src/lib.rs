@@ -4,7 +4,7 @@ use bevy::tasks::{AsyncComputeTaskPool, Task};
 use bevy::utils::HashMap;
 pub use ehttp::Response;
 use futures_lite::future;
-use pecs_core::{AsyncOps, Promise, PromiseCommand, PromiseId, PromiseResult};
+use pecs_core::{AsyncOps, Promise, PromiseCommand, PromiseId, PromiseResult, PromiseLike};
 
 pub struct PromiseHttpPlugin;
 impl Plugin for PromiseHttpPlugin {

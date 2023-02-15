@@ -52,20 +52,19 @@ pub fn process_timers_system(timers: Query<(Entity, &MyTimer)>, mut commands: Co
 
 fn setup(mut commands: Commands) {
     // `delay()` can be called from inside promise
-    commands.add(
-        Promise::start(asyn!(_state => {
+    commands
+        .promise(|| ())
+        .then(asyn! {
             info!("Starting");
             delay(1.)
-        }))
-        .then(asyn!(s, _ => {
+        })
+        .then(asyn! {
             info!("Completing");
-            s.pass()
-        })),
-    );
+        });
 
     // or queued directly to Commands
-    commands.add(delay(2.).then(asyn!(s, _ => {
+    commands.promise(delay(2.)).then(asyn! {
         info!("I'm another timer");
-        s.pass()
-    })));
+        asyn::app::exit()
+    });
 }

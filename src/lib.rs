@@ -2,7 +2,7 @@
 //! `pecs` is a plugin for [Bevy](https://bevyengine.org) that allows you
 //! to execute code asynchronously by chaining multple promises as part of Bevy's
 //! `ecs` enviroment.
-//! 
+//!
 //! `pecs`stands for `Promise Entity Component System`
 //!
 //! ### Features
@@ -36,7 +36,7 @@
 //!         .add_startup_system(setup)
 //!         .run();
 //! }
-//! 
+//!
 //! fn setup(mut commands: Commands) {
 //!     commands.add(
 //!         Promise::start(asyn!(state, time: Res<Time> => {
@@ -64,9 +64,9 @@
 //!     );
 //! }
 //! ```
-//! 
+//!
 //! There is otput of the above example, pay some attention to time stamps:
-//! 
+//!
 //! ```text
 //! 18.667 INFO bevy_render::renderer: AdapterInfo { ... }
 //! 18.835 INFO simple: Wait a second..
@@ -147,12 +147,12 @@
 //! There are a lot docs planned to put here, but I believe it is better to release something
 //! then perfect. So I just put complex example here (with all features covered) and wish you a
 //! good luck.
-//! 
+//!
 //! ## Complex Example
 //! ```rust
 //! use bevy::prelude::*;
 //! use pecs::prelude::*;
-//! 
+//!
 //! fn main() {
 //!     App::new()
 //!         .add_plugins(DefaultPlugins)
@@ -160,7 +160,7 @@
 //!         .add_startup_system(setup)
 //!         .run();
 //! }
-//! 
+//!
 //! fn setup(mut commands: Commands) {
 //!     commands.spawn(Camera2dBundle::default());
 //!     commands.add(
@@ -294,7 +294,7 @@
 //!         })),
 //!     );
 //! }
-//! 
+//!
 //! /// Returns a promise that requests `url`, logs the process
 //! /// and resolves with seconds spent to complete requests as `f32`
 //! fn log_request(url: &'static str) -> Promise<(), f32> {
@@ -316,7 +316,7 @@
 //!         s.map(|_| ()).resolve(duration)
 //!     }))
 //! }
-//! 
+//!
 //! // almost implemeted by chatgpt
 //! pub fn rand() -> f32 {
 //!     use std::hash::{Hash, Hasher};
@@ -331,7 +331,7 @@
 //!     (seed as f32) / u64::MAX as f32
 //! }
 //! ```
-//! 
+//!
 //! Output:
 //! ```text
 //! 54.424  INFO complex: start with 31, started at 0.2795026, start time stored in state.
@@ -366,24 +366,36 @@
 //! 59.806  INFO complex: Done, time to process: 5.3819447 (start time took from state PromiseState(0.2795026)
 //! ```
 
-
 /// All you need is `use pecs::prelude::*`
 pub mod prelude {
+    // structs
     #[doc(inline)]
     pub use pecs_core::Promise;
     #[doc(inline)]
     pub use pecs_core::PromiseCommand;
     #[doc(inline)]
     pub use pecs_core::PromiseId;
+    #[doc(inline)]
+    pub use pecs_core::Loop;
 
+
+    // traits
     #[doc(inline)]
     pub use pecs_core::timer::TimerOpsExtension;
     #[doc(inline)]
-    pub use pecs_core::PromisesExtension;
-    #[doc(inline)]
     pub use pecs_core::PromiseCommandsExtension;
     #[doc(inline)]
+    pub use pecs_core::PromiseStateWithEmptyResult;
+    #[doc(inline)]
+    pub use pecs_core::PromisesExtension;
+    #[doc(inline)]
+    pub use pecs_core::PromiseLike;
+    #[doc(inline)]
     pub use pecs_http::HttpOpsExtension;
+
+    // macros
+    #[doc(inline)]
+    pub use pecs_core::Asyn;
     #[doc(inline)]
     pub use pecs_macro::asyn;
 
@@ -401,9 +413,9 @@ pub mod prelude {
     /// Out-of-the box async operations
     pub mod asyn {
         #[doc(inline)]
-        pub use pecs_core::timer::timeout;
-        #[doc(inline)]
         pub use pecs_core::app;
+        #[doc(inline)]
+        pub use pecs_core::timer::timeout;
         #[doc(inline)]
         pub use pecs_http::asyn as http;
     }

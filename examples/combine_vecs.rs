@@ -45,7 +45,7 @@ fn setup(mut commands: Commands) {
         // Promise::any() works the same way: it takes a vec of promises
         // and returns another promise that will be resolved when the ANY
         // of provided promises got resolved:
-        .then(asyn!(_, _ => {
+        .then(asyn!({
             info!("Requesting any of {} urls", URLS.len());
             let requests = URLS
                 .into_iter()

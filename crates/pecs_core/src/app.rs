@@ -4,10 +4,8 @@ use super::*;
 
 pub fn exit() -> Promise<(), ()> {
     Promise::register(
-        |world, _| {
-            world.resource_mut::<Events<AppExit>>().send(AppExit)
-        },
+        |world, _| world.resource_mut::<Events<AppExit>>().send(AppExit),
         // can't discard AppExit
-        |_, _| { }
+        |_, _| {},
     )
 }

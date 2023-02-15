@@ -31,6 +31,6 @@ fn setup(mut commands: Commands) {
             info!("It tooks {duration:0.2}s to do this job.");
             info!("Exiting now");
             asyn::app::exit()
-        }))
+        })),
     );
 }

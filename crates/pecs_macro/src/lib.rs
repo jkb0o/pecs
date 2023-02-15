@@ -9,7 +9,7 @@ use syn::{self, token::Comma, LitInt, Pat, PatType, Token};
 /// [`AsynFunction`](https://docs.rs/pecs/latest/pecs/struct.AsynFunction.html))
 pub fn asyn(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let ctx = Context::new();
-    let promise = syn::parse_macro_input!(input as Asyn);
+    let promise = syn::parse_macro_input!(input as AsynFunc);
     proc_macro::TokenStream::from(promise.build_function(&ctx))
 }
 
@@ -33,44 +33,54 @@ pub fn impl_all_promises(input: proc_macro::TokenStream) -> proc_macro::TokenStr
     proc_macro::TokenStream::from(impl_all_promises_internal(num))
 }
 
-struct Asyn {
-    state: Pat,
-    value: Option<Pat>,
+struct AsynFunc {
+    force_loop: bool,
+    state: Option<Pat>,
+    result: Option<Pat>,
     system_args: Vec<syn::FnArg>,
     body: TokenStream,
 }
 
-fn closes_with_line(i: &mut syn::parse::ParseStream) -> syn::Result<bool> {
+fn closes_with_line(i: &mut syn::parse::ParseStream) -> bool {
     if i.peek(Token![|]) {
-        i.parse::<Token![|]>()?;
-        Ok(true)
+        i.parse::<Token![|]>().unwrap();
+        true
     } else {
-        Ok(false)
+        false
     }
 }
-fn closes_with_arrow(i: &mut syn::parse::ParseStream) -> syn::Result<bool> {
+fn closes_with_arrow(i: &mut syn::parse::ParseStream) -> bool {
     if i.peek(Token![=>]) {
-        i.parse::<Token![=>]>()?;
-        Ok(true)
+        i.parse::<Token![=>]>().unwrap();
+        true
     } else {
-        Ok(false)
+        false
     }
 }
 
-impl syn::parse::Parse for Asyn {
+impl syn::parse::Parse for AsynFunc {
     fn parse(mut input: syn::parse::ParseStream) -> syn::Result<Self> {
-        let closes = if input.peek(Token![|]) {
+        let args_done = if input.peek(Token![|]) {
             input.parse::<Token![|]>()?;
             closes_with_line
         } else {
             closes_with_arrow
         };
-        let state = input.parse::<syn::Pat>()?;
-        if input.peek(Comma) {
-            input.parse::<Comma>()?;
-        }
+        let force_loop = if input.peek(Token![loop]) {
+            input.parse::<Token![loop]>()?;
+            true
+        } else {
+            false
+        };
         let mut system_args = vec![];
-        let value = if let Ok(pat) = input.parse() {
+        let mut state = None;
+        let mut result = None;
+        let mut body = quote! {};
+        while let Ok(pat) = input.parse() {
+            if input.peek(Token![;]) {
+                body = quote! { #pat };
+                break;
+            }
             if input.peek(Token![:]) {
                 system_args.push(syn::FnArg::Typed(PatType {
                     attrs: vec![],
@@ -78,38 +88,44 @@ impl syn::parse::Parse for Asyn {
                     colon_token: input.parse()?,
                     ty: Box::new(input.parse()?),
                 }));
-                None
+            } else if !system_args.is_empty() {
+                panic!("Invalid system args sequesnce for asyn! func")
+            } else if state.is_none() {
+                state = Some(pat);
+            } else if result.is_none() {
+                result = Some(pat)
             } else {
-                Some(pat)
+                panic!("Invalid system arg sequesnce for asyn! func")
             }
-        } else {
-            None
-        };
-        loop {
             if input.peek(Comma) {
                 input.parse::<Comma>()?;
             }
-            if closes(&mut input)? {
+            if args_done(&mut input) {
                 break;
             }
-            system_args.push(input.parse()?);
         }
 
-        let body = input.parse::<TokenStream>()?;
-        Ok(Asyn {
+        if state.is_some() || !system_args.is_empty() {
+            args_done(&mut input);
+        }
+        let rest_body = input.parse::<TokenStream>()?;
+        body = quote! { #body #rest_body };
+        Ok(AsynFunc {
+            force_loop,
             state,
-            value,
-            body,
+            result,
             system_args,
+            body,
         })
     }
 }
 
-impl Asyn {
+impl AsynFunc {
     fn build_function(&self, ctx: &Context) -> TokenStream {
         let core = ctx.core_path();
         let mut pats = quote! {};
         let mut types = quote! {};
+        let mut asyn_spec = quote! {};
         for arg in self.system_args.iter() {
             let syn::FnArg::Typed(arg) = arg else {
                 continue;
@@ -119,20 +135,35 @@ impl Asyn {
             pats = quote! { #pats #pat, };
             types = quote! { #types #typ, };
         }
-        let input = &self.state;
-        let is = input.to_token_stream().to_string().trim().to_string();
-        let mutable = if is.starts_with("_") || is.starts_with("mut ") {
-            quote! { }
+        let state_str = if let Some(state) = &self.state {
+            state.to_token_stream().to_string()
+        } else {
+            "_".to_string()
+        };
+        let state_str = state_str.trim();
+        let mutable = if false
+            || state_str.starts_with("_")
+            || state_str.starts_with("mut ")
+            || state_str.starts_with("(") 
+        {
+            quote! {}
         } else {
             quote! { mut }
         };
-        let mut input = quote! { #mutable #input };
-        if let Some(value) = &self.value {
-            input = quote! { (#input, #value) };
+
+        if self.force_loop {
+            asyn_spec = quote!(::<#core::PromiseState<_>, #core::PromiseResult<_, #core::Loop<_>>, _>);
         }
+        
+        let input = match (&self.state, &self.result) {
+            (None, None) => quote! { _ },
+            (Some(state), None) => quote! { #mutable #state },
+            (Some(state), Some(result)) => quote!{ (#mutable #state, #result) },
+            _ => panic!("Invlid state/result arguments")
+        };
         let body = &self.body;
         quote! {
-            #core::AsynFunction {
+            #core::AsynFunction #asyn_spec {
                 marker: ::core::marker::PhantomData::<(#types)>,
                 body: |::bevy::prelude::In(#input), (#pats): (#types)| {
                     #body
@@ -451,3 +482,4 @@ fn impl_all_promises_internal_for(elements: u8) -> TokenStream {
         }
     }
 }
+
