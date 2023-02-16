@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use crate::{AsyncOps, Promise, PromiseCommandsExtension, PromiseId, PromiseLike};
+use crate::{AsynOps, Promise, PromiseCommandsExtension, PromiseId, PromiseLikeBase};
 
 pub mod asyn {
     use super::AsynButton;
@@ -70,7 +70,7 @@ impl<S: 'static> StatefulAsynButton<S> {
 pub trait UiOpsExtension<S> {
     fn ui(self) -> StatefulAsynUi<S>;
 }
-impl<S: 'static> UiOpsExtension<S> for AsyncOps<S> {
+impl<S: 'static> UiOpsExtension<S> for AsynOps<S> {
     fn ui(self) -> StatefulAsynUi<S> {
         StatefulAsynUi(self.0)
     }

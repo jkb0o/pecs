@@ -15,7 +15,7 @@ pub fn timeout(duration: f32) -> Promise<(), ()> {
 pub trait TimerOpsExtension<S> {
     fn timeout(self, duration: f32) -> Promise<S, ()>;
 }
-impl<S: 'static> TimerOpsExtension<S> for AsyncOps<S> {
+impl<S: 'static> TimerOpsExtension<S> for AsynOps<S> {
     fn timeout(self, duration: f32) -> Promise<S, ()> {
         timeout(duration).map(|_| self.0)
     }

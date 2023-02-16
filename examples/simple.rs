@@ -1,3 +1,5 @@
+//! This example shows how to sequentially call
+//! promises by chaining them with `then` method.
 use bevy::prelude::*;
 use pecs::prelude::*;
 fn main() {
@@ -8,17 +10,22 @@ fn main() {
         .run();
 }
 
-fn setup(mut commands: Commands) {
-    commands.add(
-        Promise::start(asyn!(state, time: Res<Time> => {
+fn setup(mut commands: Commands, time: Res<Time>) {
+    let start = time.elapsed_seconds();
+    // create PromiseLike chainable commands with the current time as state
+    commands
+        .promise(|| start)
+        // will be executed right after current stage
+        .then(asyn!(state => {
             info!("Wait a second..");
-            let started_at = time.elapsed_seconds();
-            state.with(started_at).asyn().timeout(1.0)
+            state.asyn().timeout(1.0)
         }))
-        .then(asyn!(state, _ => {
+        // will be executed after in a second after previous call
+        .then(asyn!(state => {
             info!("How large is is the Bevy main web page?");
             state.asyn().http().get("https://bevyengine.org")
         }))
+        // will be executed after request completes
         .then(asyn!(state, result => {
             match result {
                 Ok(response) => info!("It is {} bytes!", response.bytes.len()),
@@ -26,11 +33,11 @@ fn setup(mut commands: Commands) {
             }
             state.pass()
         }))
-        .then(asyn!(state, _, time: Res<Time> => {
+        // will be executed right after the previous one
+        .then(asyn!(state, time: Res<Time> => {
             let duration = time.elapsed_seconds() - state.value;
             info!("It tooks {duration:0.2}s to do this job.");
             info!("Exiting now");
             asyn::app::exit()
-        })),
-    );
+        }));
 }

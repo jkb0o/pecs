@@ -14,17 +14,62 @@ use std::{
     thread::{self, ThreadId},
 };
 pub mod app;
+mod impls;
 pub mod timer;
 pub mod ui;
 
-pub struct AsyncOps<T>(pub T);
+/// Namespace-like stateful container for asyn operations used to simplify
+/// state passing through promise chain. For extending this container with
+/// user-provided methods custom extension should be implemented:
+/// ```
+/// fn my_async_func() -> Promise<(), ()> {
+///     Promise::from(())
+/// }
+///
+/// pub struct MyStatefulOps<S>(S);
+/// impl<S: 'static> MyStatefulOps<S> {
+///     pub fn func(self) -> Promise<S, ()> {
+///         my_async_func().with(self.0)
+///     }
+/// }
+///
+/// pub trait MyAsyncExtension<S> {
+///     fn my_async(self) -> MyStatefulOps<S>;
+/// }
+///
+/// impl<S: 'static> MyAsyncExtension<S> for AsynOps<S> {
+///     fn my_async(self) -> MyStatefulOps<S> {
+///         MyStatefulOps(self.0)
+///     }
+/// }
+///
+/// // now you my_async_func could be used in both stateful/stateles ways
+/// fn setup(mut commands: Commands) {
+///     commands.add(
+///         Promise::from(0)
+///         .then(asyn!(state => {
+///             // stateful, state passes to the next call
+///             state.asyn().my_async().func()
+///         }))
+///         .then(asyn!(state => {
+///             // stateless, state dropped
+///             my_asyn_func()
+///         }))
+///     );
+/// }
+pub struct AsynOps<T>(pub T);
+impl<T: Clone> Clone for AsynOps<T> {
+    fn clone(&self) -> Self {
+        AsynOps(self.0.clone())
+    }
+}
+impl<T: Copy> Copy for AsynOps<T> {}
 
 pub fn promise_resolve<S: 'static, R: 'static>(world: &mut World, id: PromiseId, state: S, result: R) {
     // info!(
-    //     "resolving {id}<{}, {}, {}>",
-    //     type_name::<R>(),
-    //     type_name::<E>(),
+    //     "resolving {id}<{}, {}>",
     //     type_name::<S>(),
+    //     type_name::<R>(),
     // );
     let registry = world
         .get_resource_or_insert_with(PromiseRegistry::<S, R>::default)
@@ -38,10 +83,9 @@ pub fn promise_resolve<S: 'static, R: 'static>(world: &mut World, id: PromiseId,
     }
     registry.0.write().unwrap().remove(&id);
     // info!(
-    //     "resolved {id}<{}, {}, {}> ({} left)",
-    //     type_name::<R>(),
-    //     type_name::<E>(),
+    //     "resolved {id}<{}, {}> ({} left)",
     //     type_name::<S>(),
+    //     type_name::<R>(),
     //     registry.0.read().unwrap().len()
     // );
 }
@@ -59,10 +103,9 @@ pub fn promise_register<S: 'static, R: 'static>(world: &mut World, mut promise: 
         register(world, id)
     }
     // info!(
-    //     "registered {id}<{}, {}, {}> ({} left)",
-    //     type_name::<R>(),
-    //     type_name::<E>(),
+    //     "registered {id}<{}, {}> ({} left)",
     //     type_name::<S>(),
+    //     type_name::<R>(),
     //     registry.0.read().unwrap().len()
     // );
 }
@@ -89,10 +132,9 @@ pub fn promise_discard<S: 'static, R: 'static>(world: &mut World, id: PromiseId)
     }
     registry.0.write().unwrap().remove(&id);
     // info!(
-    //     "discarded {id}<{}, {}, {}> ({} left)",
-    //     type_name::<R>(),
-    //     type_name::<E>(),
+    //     "discarded {id}<{}, {}> ({} left)",
     //     type_name::<S>(),
+    //     type_name::<R>(),
     //     registry.0.read().unwrap().len()
     // );
 }
@@ -100,33 +142,58 @@ pub fn promise_discard<S: 'static, R: 'static>(world: &mut World, id: PromiseId)
 pub trait PromiseParams: 'static + SystemParam + Send + Sync {}
 impl<T: 'static + SystemParam + Send + Sync> PromiseParams for T {}
 
-// pub type Asyn<S, R> = AsynFunction<(PromiseState<S>, R), impl 'static + Into<PromiseResult<S, ()>>, impl PromiseParams>;
-pub struct AsynFunction<Input, Output, Params: PromiseParams> {
+/// A wrapper around a system-like function that can be used in various contexts within `pecs`.
+///
+/// An `Asyn` function is constructed with the [`asyn!`] macro, and it can be passed to constructors such as
+/// [`Promise::new`][Promise::new], [`Promise::from`][Promise::from], [`Promise::start`][Promise::start], and
+/// [`Promise::repeat`][Promise::repeat], as well as to the chaining methods [`then`][PromiseLikeBase::then]
+/// and [`then_repeat`][PromiseLike::then_repeat].
+///
+/// The signature of an `Asyn` function can be generated with the `Asyn!` macro. You can specify the input and output
+/// state and result types, e.g., `Asyn![S, R => S2, R2]`. The function should return something that implements the
+/// [`Into<PromiseResult<S2, R2>>`][PromiseResult] trait. By default, this is implemented for [`Promise<S, R>`],
+/// [`PromiseState<S, ()>`], and [`()`].
+///
+/// The `Asyn` function can take optional parameters of type [`PromiseParams`] which allow the function to access the
+/// same parameters as Bevy systems. These parameters are passed automatically by `pecs`.
+pub struct Asyn<Input, Output, Params: PromiseParams> {
     pub marker: PhantomData<Params>,
     pub body: fn(In<Input>, SystemParamItem<Params>) -> Output,
 }
-impl<Input, Otput, Params: PromiseParams> Clone for AsynFunction<Input, Otput, Params> {
+impl<Input, Otput, Params: PromiseParams> Clone for Asyn<Input, Otput, Params> {
     fn clone(&self) -> Self {
-        AsynFunction {
+        Asyn {
             body: self.body.clone(),
             marker: self.marker,
         }
     }
 }
-impl<Input, Output, Params: PromiseParams> PartialEq for AsynFunction<Input, Output, Params> {
+impl<Input, Output, Params: PromiseParams> PartialEq for Asyn<Input, Output, Params> {
     fn eq(&self, other: &Self) -> bool {
         self.ptr() == other.ptr()
     }
 }
-impl<Input, Output, Params: PromiseParams> Eq for AsynFunction<Input, Output, Params> {}
-impl<Input, Output, Params: PromiseParams> std::hash::Hash for AsynFunction<Input, Output, Params> {
+impl<Input, Output, Params: PromiseParams> Eq for Asyn<Input, Output, Params> {}
+impl<Input, Output, Params: PromiseParams> std::hash::Hash for Asyn<Input, Output, Params> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.ptr().hash(state)
     }
 }
-impl<Input, Output, Params: PromiseParams> AsynFunction<Input, Output, Params> {
-    fn new(body: fn(In<Input>, SystemParamItem<Params>) -> Output) -> Self {
-        AsynFunction {
+impl<Input, Output, Params: PromiseParams> Asyn<Input, Output, Params> {
+    /// Creates a new `Asyn` from a system-like function pointer `body`.
+    ///
+    /// The `body` function takes two arguments: the input state of type `Input`,
+    /// and a [`SystemParamItem`] of type `Params`. The `Params` type can be used
+    /// to access [system parameters][bevy::ecs::system::SystemParam] from within
+    /// the `Asyn` function.
+    ///
+    /// The return value of the `body` function should be of type `Output`, which
+    /// is then automatically converted into a [`PromiseResult`] using the
+    /// [`Into<PromiseResult<S2, R2>>`] trait. The output state and result types
+    /// for the resulting `Asyn` function are inferred from the return type of
+    /// the `body` function.
+    pub fn new(body: fn(In<Input>, SystemParamItem<Params>) -> Output) -> Self {
+        Asyn {
             body,
             marker: PhantomData,
         }
@@ -135,7 +202,14 @@ impl<Input, Output, Params: PromiseParams> AsynFunction<Input, Output, Params> {
         self.body as *const fn(In<Input>, SystemParamItem<Params>) -> Output
     }
 }
-impl<Input: 'static, Output: 'static, Params: PromiseParams> AsynFunction<Input, Output, Params> {
+impl<Input: 'static, Output: 'static, Params: PromiseParams> Asyn<Input, Output, Params> {
+    /// Executes the `Asyn` with the given `input` and [`World`][bevy::prelude::World].
+    ///
+    /// This method runs the `Asyn` with the given `input` and `World` context, returning
+    /// the result of the execution. The `input` argument is used as the first argument
+    /// when calling the system-like function `body` associated with the `Asyn`. The `World`
+    /// argument is used to provide access to any necessary `SystemParam`s. The return
+    /// value of the `run` method is the output of the system-like function.
     pub fn run(&self, input: Input, world: &mut World) -> Output {
         let registry = world
             .get_resource_or_insert_with(SystemRegistry::<Input, Output, Params>::default)
@@ -190,6 +264,14 @@ impl std::fmt::Debug for PromiseId {
     }
 }
 
+/// `PromiseResult` is the result of a promise, which can either resolve to a value with `S`
+/// state and `R` result, or it can await another `Promise<S, R>`.
+///
+/// `S` stands for "state", which is the type of the data being carried through the promise chain.
+/// `R` stands for "result", which is the type of the final value that the promise chain resolves to.
+///
+/// Promises returned by `asyn` functions should return a type that implements `Into<PromiseResult>`.
+/// This allows them to interact with other promises in the chain.
 pub enum PromiseResult<S, R> {
     Resolve(S, R),
     Await(Promise<S, R>),
@@ -226,7 +308,7 @@ impl<S, R> Clone for PromiseRegistry<S, R> {
 
 #[derive(Resource)]
 struct SystemRegistry<In, Out, Params: PromiseParams>(
-    Arc<RwLock<HashMap<AsynFunction<In, Out, Params>, BoxedSystem<In, Out>>>>,
+    Arc<RwLock<HashMap<Asyn<In, Out, Params>, BoxedSystem<In, Out>>>>,
 );
 impl<In, Out, Params: PromiseParams> Clone for SystemRegistry<In, Out, Params> {
     fn clone(&self) -> Self {
@@ -239,17 +321,45 @@ impl<In, Out, Params: PromiseParams> Default for SystemRegistry<In, Out, Params>
     }
 }
 
+/// An enumeration used to control the behavior of a loop in a [`repeat(asyn!(...))`][Promise::repeat] construct.
+///
+/// A loop constructed with [`Promise::repeat()`] can be continued or broken by reolving promise with either
+/// `Repeat::Continue` or `Repeat::Break(result)` from the underlying [`Asyn`][struct@Asyn] function. When
+/// `Repeat::Continue` is returned, the loop repeats. When `Repeat::Break(result)` is returned, the loop breaks
+/// and resolves with the given `result`.
 pub enum Repeat<R> {
+    /// A variant indicating that the loop should continue.
     Continue,
+    /// A variant indicating that the loop should break with the given result.
     Break(R),
 }
 
 impl Repeat<()> {
+    /// Creates an infinite repeat loop.
     pub fn forever() -> Self {
         Repeat::Continue
     }
 }
 
+/// A promise represents a value that may not be available yet, but will be in the future.
+///
+/// The promise's state is of type `S`, and the result type is `R`. The state represents the
+/// current state of the promise which is carried through the promise chain, while the result
+/// represents the final value that the promise will resolve to.
+///
+/// You can create new promises via [`Promise::start()`]
+/// [`Promise::new()`], [`Promise::repeat()`] or
+/// [`Promise::register(on_invoke, on_discard)`][Promise::register].
+///
+/// You can chain promises using the [`then()`][Promise::then] method, which takes
+/// an [`Asyn`][struct@Asyn] function as an argument. This function takes the current promise state
+/// and result as arguments, and may also take other [system parameters][bevy::ecs::system::SystemParam]
+/// if needed.
+///
+/// The result of the `Asyn` function passes to the next promise in the chain immediately if
+/// the result is [`Resolve`][PromiseResult::Resolve], or when a nested promise
+/// is resolved if the result is [`Await`][PromiseResult::Await]. The type of
+/// the next promise state/result arguments are inferred from the result of the previous promise.
 pub struct Promise<S, R> {
     id: PromiseId,
     register: Option<Box<dyn FnOnce(&mut World, PromiseId)>>,
@@ -260,7 +370,11 @@ unsafe impl<S, R> Send for Promise<S, R> {}
 unsafe impl<S, R> Sync for Promise<S, R> {}
 
 impl<S: 'static> Promise<S, ()> {
-    /// Create new [`Promise<S, ()>`] from state `S`:
+    /// Creates a new `Promise` with the given initial state `state`.
+    ///
+    /// The resulting promise resolves immediately with the same state value,
+    /// since the `Asyn` function returned by the `asyn!` macro simply passes
+    /// the state through unchanged.
     /// ```rust
     /// fn setup(mut commands: Commands) {
     ///     commands.add(
@@ -303,8 +417,8 @@ impl<S: 'static, R: 'static> Promise<S, R> {
         Promise::new((), func)
     }
     /// Create new [`Promise<S, R>`] from default `D` state and
-    /// [`asyn!`]`<D -> S, R>` func. `S` and `R` infers from the
-    /// [`Asyn`] func body.
+    /// [`Asyn![D => S, R]`][struct@Asyn] func. `S` and `R` infers from the
+    /// [`Asyn`][struct@Asyn] function body.
     /// ```
     /// # use bevy::prelude::*
     /// fn setup(mut commands: Commands) {
@@ -430,11 +544,11 @@ impl<S: 'static, R: 'static> Promise<S, R> {
         }
     }
 
-    /// Create new [`Promise<S, R>`] from default `S` state and  [`Asyn!`]`[D => S,`[`Repeat<R>`]`]` func.
-    /// `S` and `R` infers from the [`Asyn`] function body.
+    /// Create new [`Promise<S, R>`] from default `S` state and  [`Asyn!`][struct@Asyn]`[D => S,`[`Repeat<R>`]`]`
+    /// function. `S` and `R` infers from the [`Asyn`][struct@Asyn] function body.
     ///
-    /// If `func` resolves with `Repeat::Continue` it executes one more time.
-    /// If `func` resolves with `Repeat::Break(result)`, the loop stops and
+    /// If `func` resolves with [`Repeat::Continue`] it executes one more time.
+    /// If `func` resolves with [`Repeat::Break(result)`], the loop stops and
     /// `result` passes to the next promise.
     pub fn repeat(state: S, func: Asyn![S => S, Repeat<R>]) -> Promise<S, R> {
         Promise::new(
@@ -496,17 +610,6 @@ impl<R: 'static, S: 'static> Command for Promise<S, R> {
     }
 }
 
-pub struct RegisterPromise<R> {
-    pub id: PromiseId,
-    pub func: Box<dyn FnOnce(&mut World)>,
-    marker: PhantomData<R>,
-}
-
-// pub enum PromiseCommandsArg {
-//     Id(PromiseId),
-//     Register(RegisterPromise)
-// }
-
 pub trait PromiseCommandsArg {}
 impl PromiseCommandsArg for PromiseId {}
 impl<S: 'static, R: 'static> PromiseCommandsArg for Promise<S, R> {}
@@ -542,7 +645,7 @@ pub trait PromiseCommandsExtension<'w, 's, T> {
 }
 
 impl<'w, 's, S: 'static, F: FnOnce() -> S> PromiseCommandsExtension<'w, 's, F> for Commands<'w, 's> {
-    /// Create [`PromiseLike<S, ()>`] chainable commands from default state `S`
+    /// Create [`PromiseLike<S, ()>`] chainable commands from default state constructor `|| -> S`
     fn promise<'a>(&'a mut self, arg: F) -> PromiseCommands<'w, 's, 'a, F> {
         PromiseCommands {
             data: Some(arg),
@@ -588,61 +691,117 @@ impl<'w, 's, 'a, S: 'static, R: 'static> Drop for PromiseChain<'w, 's, 'a, S, R>
         }
     }
 }
-// impl<'w, 's, 'a, S: 'static, R: 'static> PromiseChain<'w, 's, 'a, S, R> {
-//     pub fn then<S2: 'static, R2: 'static>(
-//         mut self, func: Asyn![S, R => S2, R2]
-//     ) -> PromiseChain<'w, 's, 'a, S2, R2> {
-//         let commands = mem::take(&mut self.commands).unwrap();
-//         let promise = mem::take(&mut self.promise).unwrap();
-//         PromiseChain {
-//             commands: Some(commands),
-//             promise: Some(promise.then(func)),
-//         }
-//     }
-// }
 
-impl<T: Clone> Clone for AsyncOps<T> {
-    fn clone(&self) -> Self {
-        AsyncOps(self.0.clone())
-    }
-}
-impl<T: Copy> Copy for AsyncOps<T> {}
+/// A wrapper for state that can be passed to asynchronous functions and promises.
+///
+/// The state wrapped by `PromiseState` is passed to the next function or promise in the chain.
+/// You can create promises that have access to the current state with the `asyn` method:
+///
+/// ```rust
+/// let state = PromiseState::new(0);
+/// let promise = state.asyn().timeout(1.0);
+/// ```
+///
+/// The state can also be transformed using the `map` and `with` methods. For example, to change the
+/// type of the state from `i32` to `String`, you can use `map`:
+///
+/// ```rust
+/// let state = PromiseState::new(42);
+/// let new_state = state.map(|value| value.to_string());
+/// ```
+///
+/// Or to set the state to a new value, you can use `with`:
+///
+/// ```rust
+/// let state = PromiseState::new(42);
+/// let new_state = state.with("hello");
+/// ```
+///
+/// Once you have a promise with access to the current state, you can chain it with other promises
+/// that use the same state:
+///
+/// ```rust
+/// let state = PromiseState::new(0);
+/// let promise = state.asyn().timeout(1.0)
+///     .then(asyn!(state => {
+///         state.value += 1;
+///         state.asyn().timeout(1.0)
+///     }))
+///     .then(asyn!(state => {
+///         info!("State value: {}", state.value);
+///     }));
+/// ```
 pub struct PromiseState<S> {
     pub value: S,
 }
 impl<S: 'static> PromiseState<S> {
+    /// Create a new `PromiseState` with the given initial value.
     pub fn new(value: S) -> PromiseState<S> {
         PromiseState { value }
     }
-    pub fn asyn(self) -> AsyncOps<S> {
-        AsyncOps(self.value)
+
+    /// Get access to stateful asyn operation.
+    /// Promises returned by this operations will be
+    /// associated with the current state:
+    /// ```rust
+    /// fn setup(mut commands: Commands) {
+    ///     commands.add(
+    ///         Promise::from(0)
+    ///         .then(asyn!(state => {
+    ///             state.value += 1;
+    ///             // state will be passed to the next promise
+    ///             state.asyn().timeout(1.0)
+    ///         }))
+    ///         .then(asyn!(state => {
+    ///             info!("State value: {}", state.value);
+    ///         }))
+    ///     )
+    /// }
+    /// ```
+    pub fn asyn(self) -> AsynOps<S> {
+        AsynOps(self.value)
     }
+
+    /// Create a new `PromiseResult` with the given result.
     pub fn resolve<R>(self, result: R) -> PromiseResult<S, R> {
         PromiseResult::Resolve(self.value, result)
     }
+    /// Create a new `PromiseResult` with no result.
     pub fn pass(self) -> PromiseResult<S, ()> {
         PromiseResult::Resolve(self.value, ())
     }
-    pub fn map<T, F: FnOnce(S) -> T>(self, map: F) -> PromiseState<T> {
+
+    /// Create a new `PromiseState` by mapping the current value with the given function.
+    pub fn map<S2: 'static, F: FnOnce(S) -> S2>(self, map: F) -> PromiseState<S2> {
         PromiseState { value: map(self.value) }
     }
 
-    pub fn with<T: 'static>(self, value: T) -> PromiseState<T> {
+    /// Create a new `PromiseState` with the given value.
+    pub fn with<S2: 'static>(self, value: S2) -> PromiseState<S2> {
         PromiseState { value }
     }
 
-    pub fn then<R: 'static, S2: 'static>(self, promise: Promise<S2, R>) -> Promise<S, R> {
-        promise.with(self.value)
+    /// Start a new promise chain with the given asynchronous function.
+    pub fn start<S2: 'static, R2: 'static>(self, func: Asyn![S => S2, R2]) -> Promise<S2, R2> {
+        Promise::new(self.value, func)
     }
 
+    /// Start a new promise loop with the given asynchronous function.
+    pub fn repeat<R2: 'static>(self, func: Asyn![S => S, Repeat<R2>]) -> Promise<S, R2> {
+        Promise::repeat(self.value, func)
+    }
+
+    /// Combine the current promise chain with the given promises using the [`AnyPromises`] trait.
     pub fn any<A: AnyPromises>(self, any: A) -> Promise<S, A::Result> {
         any.register().with(self.value)
     }
 
+    /// Combine the current promise chain with the given promises using the `AllPromises` trait.
     pub fn all<A: AllPromises>(self, all: A) -> Promise<S, A::Result> {
         all.register().with(self.value)
     }
 }
+
 impl<S: std::fmt::Display> std::fmt::Display for PromiseState<S> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.value.fmt(f)
@@ -798,12 +957,14 @@ impl_any_promises! { 8 }
 impl_all_promises! { 8 }
 
 #[macro_export]
+/// Generates signature an [`Asyn`][struct@Asyn] function wrapper. It allows you to specify
+/// the input and output state and result types in the human-readable form: `Asyn![S, R => S2, R2]`.
 macro_rules! Asyn {
     ($is:ty => $os:ty, $or:ty) => {
-        $crate::AsynFunction<($crate::PromiseState<$is>, ()), impl 'static + Into<$crate::PromiseResult<$os, $or>>, impl $crate::PromiseParams>
+        $crate::Asyn<($crate::PromiseState<$is>, ()), impl 'static + Into<$crate::PromiseResult<$os, $or>>, impl $crate::PromiseParams>
     };
     ($is:ty, $ir:ty => $os:ty, $or:ty) => {
-        $crate::AsynFunction<($crate::PromiseState<$is>, $ir), impl 'static + Into<$crate::PromiseResult<$os, $or>>, impl $crate::PromiseParams>
+        $crate::Asyn<($crate::PromiseState<$is>, $ir), impl 'static + Into<$crate::PromiseResult<$os, $or>>, impl $crate::PromiseParams>
     }
 }
 
@@ -827,264 +988,42 @@ impl<S: 'static, R: 'static, I: Iterator<Item = Promise<S, R>>> PromisesExtensio
     }
 }
 
-pub trait PromiseLike<S: 'static, R: 'static> {
+pub trait PromiseLikeBase<S: 'static, R: 'static>
+where
+    Self: Sized,
+{
     type Promise<S2: 'static, R2: 'static>;
     /// Schedule the next [`Asyn![S, R => S2, R2]`][Asyn!] func invocation after current promise resolve.
     /// `S2` and `R2` infers from the `func` body
     fn then<S2: 'static, R2: 'static>(self, func: Asyn![S, R => S2, R2]) -> Self::Promise<S2, R2>;
 
-    /// Create new [`PromiseLike<S, R2>`] from default `S` state and  [`Asyn!`]`[D => S,`[`Loop<R>`]`]` func.
-    /// `R2` infers from the `func` body.
-    fn then_repeat<R2: 'static>(self, func: Asyn![S => S, Repeat<R2>]) -> Self::Promise<S, R2>;
-
-    /// Create new [`PromiseLike<S, R>`] from previouse promise with result mapped from `R` to `R2`
+    /// Create new [`PromiseLike<S, R>`] from previouse promise with result mapped by `map` from `R` to `R2`
     fn map_result<R2: 'static, F: 'static + FnOnce(R) -> R2>(self, map: F) -> Self::Promise<S, R2>;
 
     /// Create new [`PromiseLike<S, R2>`] from previouse promise with new result `R2`
     fn with_result<R2: 'static>(self, value: R2) -> Self::Promise<S, R2>;
 
-    /// Create new [`PromiseLike<S2, R>`] from previouse promise with state mapped from `S` to `S2` by `map`
+    /// Create new [`PromiseLike<S2, R>`] from previouse promise with state mapped by `map` from `S` to `S2`
     fn map<S2: 'static, F: 'static + FnOnce(S) -> S2>(self, map: F) -> Self::Promise<S2, R>;
 
     /// Create new [`PromiseLike<S2, R>`] from previouse promise with state replaced with `S2`
     fn with<S2: 'static>(self, state: S2) -> Self::Promise<S2, R>;
 }
 
-impl<S: 'static, R: 'static> PromiseLike<S, R> for Promise<S, R> {
-    type Promise<S2: 'static, R2: 'static> = Promise<S2, R2>;
-    fn then<S2: 'static, R2: 'static>(mut self, func: Asyn![S, R => S2, R2]) -> Promise<S2, R2> {
-        let id = PromiseId::new();
-        let discard = mem::take(&mut self.discard);
-        let self_id = self.id;
-        self.discard = Some(Box::new(move |world, _id| {
-            promise_discard::<S2, R2>(world, id);
-        }));
-        self.resolve = Some(Box::new(move |world, state, result| {
-            let pr = func.run((PromiseState::new(state), result), world).into();
-            match pr {
-                PromiseResult::Resolve(s, r) => promise_resolve::<S2, R2>(world, id, s, r),
-                PromiseResult::Await(mut p) => {
-                    if p.resolve.is_some() {
-                        error!(
-                            "Misconfigured {}<{}, {}>, resolve already defined",
-                            p.id,
-                            type_name::<S2>(),
-                            type_name::<R2>(),
-                        );
-                        return;
-                    }
-                    p.resolve = Some(Box::new(move |world, s, r| {
-                        promise_resolve::<S2, R2>(world, id, s, r);
-                    }));
-                    promise_register::<S2, R2>(world, p);
-                }
-            }
-        }));
-        Promise {
-            id,
-            register: Some(Box::new(move |world, _id| {
-                promise_register::<S, R>(world, self);
-            })),
-            discard: Some(Box::new(move |world, _id| {
-                if let Some(discard) = discard {
-                    discard(world, self_id);
-                }
-            })),
-            resolve: None,
-        }
-    }
+pub trait PromiseLike<S: 'static>
+where
+    Self: Sized + PromiseLikeBase<S, ()>,
+{
+    /// Create new [`PromiseLike<S, R2>`] from default `S` state and  [`Asyn!`]`[D => S,`[`Repeat<R>`]`]` func.
+    /// `R2` infers from the `func` body.
+    /// If `func` resolves with `Repeat::Continue` it executes one more time.
+    /// If `func` resolves with `Repeat::Break(result)`, the loop stops and
+    /// `result` passes to the next promise.
+    fn then_repeat<R2: 'static>(self, func: Asyn![S => S, Repeat<R2>]) -> Self::Promise<S, R2>;
 
-    fn then_repeat<R2: 'static>(self, func: Asyn![S => S, Repeat<R2>]) -> Self::Promise<S, R2> {
-        self.map(|state| (state, func)).then(asyn!(s, _ => {
-            let (state, func) = s.value;
-            Promise::repeat(state, func)
-        }))
-    }
+    /// Create a new promise that resolves when all promises in the `all` parameter have resolved.
+    fn all<A: 'static + AllPromises>(self, all: A) -> Self::Promise<S, A::Result>;
 
-    fn map_result<R2: 'static, F: 'static + FnOnce(R) -> R2>(mut self, map: F) -> Self::Promise<S, R2> {
-        let id = PromiseId::new();
-        let discard = mem::take(&mut self.discard);
-        let self_id = self.id;
-        self.discard = Some(Box::new(move |world, _id| {
-            promise_discard::<S, R2>(world, id);
-        }));
-        self.resolve = Some(Box::new(move |world, state, result| {
-            let result = map(result);
-            promise_resolve::<S, R2>(world, id, state, result);
-        }));
-        Promise {
-            id,
-            register: Some(Box::new(move |world, _id| {
-                promise_register::<S, R>(world, self);
-            })),
-            discard: Some(Box::new(move |world, _id| {
-                if let Some(discard) = discard {
-                    discard(world, self_id);
-                }
-            })),
-            resolve: None,
-        }
-    }
-    fn with_result<R2: 'static>(self, value: R2) -> Self::Promise<S, R2> {
-        self.map_result(|_| value)
-    }
-    fn map<S2: 'static, F: 'static + FnOnce(S) -> S2>(mut self, map: F) -> Self::Promise<S2, R> {
-        let id = PromiseId::new();
-        let discard = mem::take(&mut self.discard);
-        let self_id = self.id;
-        self.discard = Some(Box::new(move |world, _id| {
-            promise_discard::<S2, R>(world, id);
-        }));
-        self.resolve = Some(Box::new(move |world, state, result| {
-            let state = map(state);
-            promise_resolve::<S2, R>(world, id, state, result);
-        }));
-        Promise {
-            id,
-            register: Some(Box::new(move |world, _id| {
-                promise_register::<S, R>(world, self);
-            })),
-            discard: Some(Box::new(move |world, _id| {
-                if let Some(discard) = discard {
-                    discard(world, self_id);
-                }
-            })),
-            resolve: None,
-        }
-    }
-    fn with<S2: 'static>(self, state: S2) -> Self::Promise<S2, R> {
-        self.map(|_| state)
-    }
-}
-
-impl<'w, 's, 'a, S: 'static, F: FnOnce() -> S> PromiseLike<S, ()> for PromiseCommands<'w, 's, 'a, F> {
-    type Promise<S2: 'static, R2: 'static> = PromiseChain<'w, 's, 'a, S2, R2>;
-    fn then<S2: 'static, R2: 'static>(mut self, func: Asyn![S => S2, R2]) -> Self::Promise<S2, R2> {
-        let commands = mem::take(&mut self.commands);
-        let new_state = mem::take(&mut self.data).unwrap();
-        PromiseChain {
-            commands,
-            promise: Some(Promise::new(new_state(), asyn!(s => s)).then(func)),
-        }
-    }
-    fn then_repeat<R2: 'static>(mut self, func: Asyn![S => S, Repeat<R2>]) -> Self::Promise<S, R2> {
-        let commands = mem::take(&mut self.commands);
-        let new_state = mem::take(&mut self.data).unwrap();
-        PromiseChain {
-            commands,
-            promise: Some(Promise::repeat(new_state(), func)),
-        }
-    }
-    fn map_result<R2: 'static, M: 'static + FnOnce(()) -> R2>(mut self, map: M) -> Self::Promise<S, R2> {
-        let commands = mem::take(&mut self.commands);
-        let new_state = mem::take(&mut self.data).unwrap();
-        PromiseChain {
-            commands,
-            promise: Some(Promise::new(
-                (new_state(), map(())),
-                asyn!(s => {
-                    let (state, result) = s.value;
-                    PromiseResult::Resolve(state, result)
-                }),
-            )),
-        }
-    }
-    fn with_result<R2: 'static>(self, value: R2) -> Self::Promise<S, R2> {
-        self.map_result(|_| value)
-    }
-    fn map<S2: 'static, M: 'static + FnOnce(S) -> S2>(mut self, map: M) -> Self::Promise<S2, ()> {
-        let commands = mem::take(&mut self.commands);
-        let new_state = mem::take(&mut self.data).unwrap();
-        PromiseChain {
-            commands: commands,
-            promise: Some(Promise::new(map(new_state()), asyn!(s => s))),
-        }
-    }
-    fn with<S2: 'static>(self, state: S2) -> Self::Promise<S2, ()> {
-        self.map(|_| state)
-    }
-}
-
-impl<'w, 's, 'a, S: 'static, R: 'static> PromiseLike<S, R> for PromiseCommands<'w, 's, 'a, Promise<S, R>> {
-    type Promise<S2: 'static, R2: 'static> = PromiseChain<'w, 's, 'a, S2, R2>;
-    fn then<S2: 'static, R2: 'static>(mut self, func: Asyn![S, R => S2, R2]) -> Self::Promise<S2, R2> {
-        let commands = mem::take(&mut self.commands);
-        let promise = mem::take(&mut self.data).unwrap();
-        PromiseChain {
-            commands,
-            promise: Some(promise.then(func)),
-        }
-    }
-    fn then_repeat<R2: 'static>(mut self, func: Asyn![S => S, Repeat<R2>]) -> Self::Promise<S, R2> {
-        let commands = mem::take(&mut self.commands);
-        let promise = mem::take(&mut self.data).unwrap();
-        PromiseChain {
-            commands,
-            promise: Some(promise.then_repeat(func)),
-        }
-    }
-    fn map_result<R2: 'static, F: 'static + FnOnce(R) -> R2>(mut self, map: F) -> Self::Promise<S, R2> {
-        let commands = mem::take(&mut self.commands);
-        let promise = mem::take(&mut self.data).unwrap();
-        PromiseChain {
-            commands,
-            promise: Some(promise.map_result(map)),
-        }
-    }
-    fn with_result<R2: 'static>(self, value: R2) -> Self::Promise<S, R2> {
-        self.map_result(|_| value)
-    }
-    fn map<S2: 'static, F: 'static + FnOnce(S) -> S2>(mut self, m: F) -> Self::Promise<S2, R> {
-        let commands = mem::take(&mut self.commands);
-        let promise = mem::take(&mut self.data).unwrap();
-        PromiseChain {
-            commands,
-            promise: Some(promise.map(m)),
-        }
-    }
-    fn with<S2: 'static>(self, state: S2) -> Self::Promise<S2, R> {
-        self.map(|_| state)
-    }
-}
-
-impl<'w, 's, 'a, S: 'static, R: 'static> PromiseLike<S, R> for PromiseChain<'w, 's, 'a, S, R> {
-    type Promise<S2: 'static, R2: 'static> = PromiseChain<'w, 's, 'a, S2, R2>;
-    fn then<S2: 'static, R2: 'static>(mut self, func: Asyn![S, R => S2, R2]) -> Self::Promise<S2, R2> {
-        let commands = mem::take(&mut self.commands).unwrap();
-        let promise = mem::take(&mut self.promise).unwrap();
-        PromiseChain {
-            commands: Some(commands),
-            promise: Some(promise.then(func)),
-        }
-    }
-    fn then_repeat<R2: 'static>(mut self, func: Asyn![S => S, Repeat<R2>]) -> Self::Promise<S, R2> {
-        let commands = mem::take(&mut self.commands).unwrap();
-        let promise = mem::take(&mut self.promise).unwrap();
-        PromiseChain {
-            commands: Some(commands),
-            promise: Some(promise.then_repeat(func)),
-        }
-    }
-    fn map_result<R2: 'static, F: 'static + FnOnce(R) -> R2>(mut self, map: F) -> Self::Promise<S, R2> {
-        let commands = mem::take(&mut self.commands).unwrap();
-        let promise = mem::take(&mut self.promise).unwrap();
-        PromiseChain {
-            commands: Some(commands),
-            promise: Some(promise.map_result(map)),
-        }
-    }
-    fn with_result<R2: 'static>(self, value: R2) -> Self::Promise<S, R2> {
-        self.map_result(|_| value)
-    }
-    fn map<S2: 'static, F: 'static + FnOnce(S) -> S2>(mut self, map: F) -> Self::Promise<S2, R> {
-        let commands = mem::take(&mut self.commands).unwrap();
-        let promise = mem::take(&mut self.promise).unwrap();
-        PromiseChain {
-            commands: Some(commands),
-            promise: Some(promise.map(map)),
-        }
-    }
-    fn with<S2: 'static>(self, state: S2) -> Self::Promise<S2, R> {
-        self.map(|_| state)
-    }
+    /// Create a new promise that resolves when any of the promises in the `any` parameter have resolved.
+    fn any<A: 'static + AnyPromises>(self, any: A) -> Self::Promise<S, A::Result>;
 }

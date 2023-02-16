@@ -1,13 +1,13 @@
 //! This example shows how to implemnt exit confirmation
 //! popup with promises. The promise-based loop works like this:
 //! - create exit button
-//! - loop:     <---------------------------.
-//!   - wait for exit button pressed        |
-//!   - create popup with yes/no buttons    |
-//!   - wait for yes or no pressed          |
-//!   - break loop if yes pressed           |
-//!   - repeat if no pressed ---------------`
-//! - exit app
+//! - loop:     <-------------------------.
+//!   - wait for exit button pressed      |
+//!   - create popup with yes/no buttons  |
+//!   - wait for yes or no pressed        |
+//!   - repeat if no pressed -------------`
+//!   - break loop if yes pressed --------.
+//! - exit app  <-------------------------`
 use bevy::prelude::*;
 use pecs::prelude::*;
 
@@ -33,11 +33,11 @@ fn setup(mut commands: Commands) {
             ..default()
         })
         .id();
-    commands.add(UiState::start(root));
+    commands.add(GameState::start(root));
 }
 
 #[derive(Clone, Copy)]
-struct UiState {
+struct GameState {
     /// root entity, put other UI here
     root: Entity,
     /// exit button entity
@@ -45,7 +45,7 @@ struct UiState {
     /// current confiramtion popup entity
     popup: Option<Entity>,
 }
-impl UiState {
+impl GameState {
     /// Create the promise-based game loop
     fn start(root: Entity) -> Promise<(), ()> {
         Promise::from(root)
@@ -55,33 +55,40 @@ impl UiState {
                 let root = state.value;
                 let exit = add_button("Exit", &mut commands, &assets);
                 commands.entity(root).add_child(exit);
-                state.with(UiState { root, exit, popup: None })
+                state.with(GameState { root, exit, popup: None })
             }))
+            // asyn!(this => {
+            //  loop {
+            //      asyn::ui::pressed(this.exit).await;
+            //      if this.ask_for_exit().await { break }
+            //  }
+            //  asyn::app::exit()
+            // })
             // this is the loop
             .then_repeat(asyn!(this => {
-                let exit = this.exit; //    <-------------------------------.
-                this.asyn()                                             //  |
-                    // wait for exit button pressed                     //  |
-                    .ui().button(exit).pressed()                        //  |
-                    // show popup and wait an answer                    //  |
-                    .then(asyn!(this => {                               //  |
-                        info!("Exit pressed");                          //  |
-                        this.ask_for_exit()                             //  |
-                    }))                                                 //  |
-                    .then(asyn!(this, confirmed => {                    //  |
-                        info!("Exit confirmed: {confirmed}");           //  |
-                        if confirmed {                                  //  |
-                            // break the loop if user presses yes       //  |
-                            this.resolve(Repeat::Break(()))             //  |
-                        } else {                                        //  |
-                            // repeat the iteration if user presses no  //  |
-                            this.resolve(Repeat::Continue) // --------------`
-                        }
-                    }))
-
-            }))
-            // the next promise will be called after `then_repeat` loop breaks
-            .then(asyn! {
+                let exit = this.exit; //    <------------------------------.
+                this.asyn()                                             // |
+                    // wait for exit button pressed                     // |
+                    .ui().button(exit).pressed()                        // |
+                    // show popup and wait an answer                    // |
+                    .then(asyn!(this => {                               // |
+                        info!("Exit pressed");                          // |
+                        this.ask_for_exit()                             // |
+                    }))                                                 // |
+                    .then(asyn!(this, confirmed => {                    // |
+                        info!("Exit confirmed: {confirmed}");           // |
+                        if !confirmed {                                 // |
+                            // repeat the iteration if user presses no  // |
+                            this.resolve(Repeat::Continue)  // ------------`
+                        } else {
+                            // break the loop if user presses yes
+                            this.resolve(Repeat::Break(())) // ------------.
+                        }                                               // |
+                    }))                                                 // |
+            })) // |
+            // the next promise will be called after previous           // |
+            // `then_repeat` resolves with Repeat::Break                // |
+            .then(asyn! {   //  <------------------------------------------`
                 info!("Closing app");
                 asyn::app::exit()
             })
@@ -90,7 +97,7 @@ impl UiState {
     /// waits for one of this button got pressed and resolve with
     /// - true if yes pressed
     /// - false if no pressed
-    fn ask_for_exit(self) -> Promise<UiState, bool> {
+    fn ask_for_exit(self) -> Promise<GameState, bool> {
         // create new promise from self state, it will be passed over chain call
         Promise::from(self)
             .then(asyn!(this, mut commands: Commands, assets: Res<AssetServer> => {

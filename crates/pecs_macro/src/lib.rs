@@ -6,7 +6,7 @@ use syn::{self, token::Comma, LitInt, Pat, PatType, Token};
 
 #[proc_macro]
 /// Turns system-like expresion into
-/// [`AsynFunction`](https://docs.rs/pecs/latest/pecs/struct.AsynFunction.html))
+/// [`Asyn`](https://docs.rs/pecs/latest/pecs/struct.Asyn.html))
 pub fn asyn(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let ctx = Context::new();
     let promise = syn::parse_macro_input!(input as AsynFunc);
@@ -160,7 +160,7 @@ impl AsynFunc {
         };
         let body = &self.body;
         quote! {
-            #core::AsynFunction #asyn_spec {
+            #core::Asyn #asyn_spec {
                 marker: ::core::marker::PhantomData::<(#types)>,
                 body: |::bevy::prelude::In(#input), (#pats): (#types)| {
                     #body
@@ -222,66 +222,6 @@ fn impl_any_promises_internal(elements: u8) -> TokenStream {
     result
 }
 
-// Macro epansion example for 2 elements:
-//
-// impl<R0: 'static, R1: 'static, E0: 'static, E1: 'static> AnyPromises for (Promise<R0, E0, ()>, Promise<R1, E1, ()>) {
-//     type Items = (PromiseId, PromiseId);
-//     type Result = (Option<Result<R0, E0>>, Option<Result<R1, E1>>);
-//     fn register(self) -> Promise<Self::Result, (), ()> {
-//         let (p0, p1) = self;
-//         let (id0, id1) = (p0.id, p1.id);
-//         Promise::register(
-//             move |world, any_id| {
-//                 promise_register(
-//                     world,
-//                     p0.map_state(move |_| (any_id, id1))
-//                         .then(AsynFunction::<_, _, ()>::new(|In((s, r)), ()| {
-//                             let (any_id, id1) = s.value.clone();
-//                             Promise::<(), (), ()>::register(
-//                                 move |world, _id| {
-//                                     // discard rest promises
-//                                     promise_discard::<R1, E1, ()>(world, id1);
-//                                     // resolve p0
-//                                     promise_resolve::<(Option<Result<R0, E0>>, Option<Result<R1, E1>>), (), ()>(
-//                                         world,
-//                                         any_id,
-//                                         (Some(r), None),
-//                                         (),
-//                                     );
-//                                 },
-//                                 move |_world, _id| {},
-//                             )
-//                         })),
-//                 );
-//                 promise_register(
-//                     world,
-//                     p1.map_state(move |_| (any_id, id0))
-//                         .then(AsynFunction::<_, _, ()>::new(|In((s, r)), ()| {
-//                             let (any_id, id0) = s.value.clone();
-//                             Promise::<(), (), ()>::register(
-//                                 move |world, _id| {
-//                                     // discard rest promises
-//                                     promise_discard::<R0, E0, ()>(world, id0);
-//                                     // resolve p0
-//                                     promise_resolve::<(Option<Result<R0, E0>>, Option<Result<R1, E1>>), (), ()>(
-//                                         world,
-//                                         any_id,
-//                                         (None, Some(r)),
-//                                         (),
-//                                     );
-//                                 },
-//                                 move |_world, _id| {},
-//                             )
-//                         })),
-//                 );
-//             },
-//             move |world, _id| {
-//                 promise_discard::<R0, E0, ()>(world, id0);
-//                 promise_discard::<R1, E1, ()>(world, id1);
-//             },
-//         )
-//     }
-// }
 fn impl_any_promises_internal_for(elements: u8) -> TokenStream {
     let mut in_generics = quote! {};
     let mut for_args = quote! {};
@@ -332,7 +272,7 @@ fn impl_any_promises_internal_for(elements: u8) -> TokenStream {
         register = quote! {
             #register
             promise_register(world, #p.with((any_id, #promise_id_targets))
-                .then(AsynFunction::<_, _, ()>::new(|In((s, r)), ()| {
+                .then(Asyn::<_, _, ()>::new(|In((s, r)), ()| {
                     let (any_id, #promise_id_targets) = s.value.clone();
                     Promise::<(), ()>::register(
                         move |world, _id| {
@@ -436,7 +376,7 @@ fn impl_all_promises_internal_for(elements: u8) -> TokenStream {
         register = quote! {
             #register
             promise_register(world, #p.with((any_id, #v, #promise_id_targets))
-                .then(AsynFunction::<_, _, ()>::new(|In((s, r)), ()| {
+                .then(Asyn::<_, _, ()>::new(|In((s, r)), ()| {
                     let (any_id, mut value, #promise_id_targets) = s.value.clone();
                     Promise::<(), ()>::register(
                         move |world, _id| {

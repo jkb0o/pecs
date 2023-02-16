@@ -127,10 +127,11 @@ fn setup(mut commands: Commands) {
                 Ok(r) => info!("Bevy respond with {}, body size: {}", r.status, r.bytes.len()),
                 Err(e) => warn!("Error requesting Bevy: {e}"),
             }
-            s.then(log_request("https://google.com")).then(asyn!(|s, r| {
-                info!("Request done in {r} secs");
-                s.pass()
-            }))
+            log_request("https://google.com").with(s.value)
+        }))
+        .then(asyn!(s, r => {
+            info!("Request done in {r} secs");
+            s
         }))
         .then(asyn!(s, _, time: Res<Time> => {
             info!(
