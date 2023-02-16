@@ -85,7 +85,7 @@ impl GameState {
                             this.resolve(Repeat::Break(())) // ------------.
                         }                                               // |
                     }))                                                 // |
-            })) // |
+            })) //                                                      // |
             // the next promise will be called after previous           // |
             // `then_repeat` resolves with Repeat::Break                // |
             .then(asyn! {   //  <------------------------------------------`
