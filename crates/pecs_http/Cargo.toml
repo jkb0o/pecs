@@ -1,6 +1,6 @@
 [package]
 name = "pecs_http"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 description = "Asynchronous operations for Bevy Engine"
 homepage = "https://github.com/jkb0o/pecs"
@@ -13,4 +13,4 @@ license = "MIT OR Apache-2.0"
 bevy = "0.9"
 ehttp = "0.2"
 futures-lite = "1.12"
-pecs_core = { path = "../pecs_core", version = "0.2.1"}
+pecs_core = { path = "../pecs_core", version = "0.2.2"}

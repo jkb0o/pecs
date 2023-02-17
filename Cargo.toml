@@ -1,6 +1,6 @@
 [package]
 name = "pecs"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
@@ -18,6 +18,6 @@ members = [
 
 [dependencies]
 bevy = "0.9"
-pecs_macro = { path = "crates/pecs_macro", version = "0.2.1"}
-pecs_core = { path = "crates/pecs_core", version = "0.2.1" }
-pecs_http = { path = "crates/pecs_http",  version = "0.2.1" }
+pecs_macro = { path = "crates/pecs_macro", version = "0.2.2"}
+pecs_core = { path = "crates/pecs_core", version = "0.2.2" }
+pecs_http = { path = "crates/pecs_http",  version = "0.2.2" }
