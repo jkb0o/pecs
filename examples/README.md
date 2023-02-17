@@ -33,9 +33,9 @@ This Example shows how you can create custom promises
 with `Promise::register()` method and resolve them from
 you system with `commands.promise(id).resolve(result)`
 
-### [`combind_vecs`](../examples/combind_vecs.rs)
+### [`combine_vecs`](../examples/combine_vecs.rs)
 ```bash
-cargo run --example combind_vecs
+cargo run --example combine_vecs
 ```
 This example demonstrates how to use `any()`/`all()`
 in different ways for combining vector of promises
