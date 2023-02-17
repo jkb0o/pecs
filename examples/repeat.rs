@@ -1,3 +1,6 @@
+//! This example demonstrates how to use `Promise::repeat()`
+//! to create async loops. 
+
 use bevy::prelude::*;
 use pecs::prelude::*;
 fn main() {

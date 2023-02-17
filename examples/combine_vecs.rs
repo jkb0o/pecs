@@ -1,3 +1,7 @@
+//! This example demonstrates how to use `any()`/`all()`
+//! in different ways for combining vector of promises
+//! and react to result when all/any of the passed
+//! promises got resolved.
 use bevy::prelude::*;
 use pecs::prelude::*;
 fn main() {

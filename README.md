@@ -1,8 +1,8 @@
 ## About
-`pecs` is a plugin for [Bevy](https://bevyengine.org) that allows you
-to execute code asynchronously by chaining multple promises as part of Bevy's `ecs` enviroment.
+`pecs` is a plugin for [Bevy](https://bevyengine.org) that allows you to execute code asynchronously
+by chaining multiple promises as part of Bevy's `ecs` environment.
 
-`pecs`stands for `Promise Entity Component System`.
+`pecs` stands for `Promise Entity Component System`.
 
 Resources:
 - [Docs](https://docs.rs/pecs/)
@@ -11,18 +11,19 @@ Resources:
 - [Provide an idea](https://github.com/jkb0o/pecs/issues/new)
 
 ### Features
-- promise chaining with `then()`
-- state passing (`state` for promises is like `self` for items)
-- complete type inference (the next promise knows the type of the previous result)
-- out-of-the-box timer and http promises via `asyn` mod and stateful `state.asyn()`
-- custom promise registretion (add any asyn function you want!)
-- `system params` fetching (promise `asyn!` funcs accepts the same params
-  the bevy systems does)
-- nested promises (with chaining, obviously)
-- combining promises with any/all for tuple/vec of promises via stateles
-  `Promise::any()`/`Promise::all()` or stateful `state.any()`/`state.all()`
-- state mapping via `with(value)`/`map(func)` (change state type/value over chain calls)
-- result mapping via `with_ok(value)`/`map_ok(func)` (change result type/value over chain calls)
+- Promise chaining with `then()`/`then_repeat()`
+- State passing (`state` for promises is like `self` for items).
+- Complete type inference (the next promise knows the type of the previous result).
+- Out-of-the-box timer, UI and HTTP promises via stateless `asyn` mod and
+  stateful  `state.asyn()` method.
+- Custom promise registration (add any asynchronous function you want!).
+- [System parameters](https://docs.rs/bevy/latest/bevy/ecs/system/trait.SystemParam.html) fetching
+  (promise `asyn!` functions accept the same parameters as Bevy systems do).
+- Nested promises (with chaining, obviously).
+- Combining promises with `any/all` for tuple/vec of promises via stateless `Promise::any()`
+  /`Promise::all()` methods or stateful `state.any()`/`state.all()` methods.
+- State mapping via `with(value)`/`map(func)` (changes state type/value over chain calls).
+- Result mapping via `with_result(value)`/`map_result(func)` (changes result type/value over chain calls).
 
 ## Example
 ```rust
@@ -36,17 +37,23 @@ fn main() {
         .run();
 }
 
-fn setup(mut commands: Commands) {
-    commands.add(
-        Promise::start(asyn!(state, time: Res<Time> => {
+fn setup(mut commands: Commands, time: Res<Time>) {
+    let start = time.elapsed_seconds();
+    commands
+        // create PromiseLike chainable commands
+        // with the current time as state
+        .promise(|| start)
+        // will be executed right after current stage
+        .then(asyn!(state => {
             info!("Wait a second..");
-            let started_at = time.elapsed_seconds();
-            state.with(started_at).asyn().timeout(1.0)
+            state.asyn().timeout(1.0)
         }))
-        .then(asyn!(state, _ => {
+        // will be executed after in a second after previous call
+        .then(asyn!(state => {
             info!("How large is is the Bevy main web page?");
             state.asyn().http().get("https://bevyengine.org")
         }))
+        // will be executed after request completes
         .then(asyn!(state, result => {
             match result {
                 Ok(response) => info!("It is {} bytes!", response.bytes.len()),
@@ -54,13 +61,13 @@ fn setup(mut commands: Commands) {
             }
             state.pass()
         }))
-        .then(asyn!(state, _, time: Res<Time> => {
+        // will be executed right after the previous one
+        .then(asyn!(state, time: Res<Time> => {
             let duration = time.elapsed_seconds() - state.value;
             info!("It tooks {duration:0.2}s to do this job.");
             info!("Exiting now");
             asyn::app::exit()
-        }))
-    );
+        }));
 }
 ```
 There is otput of the above example, pay some attention to time stamps:
@@ -74,11 +81,11 @@ There is otput of the above example, pay some attention to time stamps:
 ```
 
 ## Work in Progress
+This crate is pretty young. API could and will change. App may crash. Some
+promises could silently drop. Documentation is incomplete.
 
-This repo is more like an experimental-proof-of-concept than a production-ready library.
-API could and will change. App will crash (there are some untested unsafe blocks), some
-promises will silently drop (there are stil no unit tests), documentation is incomplete
-and so on. But. But. Examples works like a charm. And this fact gives us a lot of hope.
+But. But. Examples works like a charm. And this fact gives us a lot of hope.
+
 
 ## License
 

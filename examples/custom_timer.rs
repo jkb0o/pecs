@@ -1,4 +1,6 @@
 //! This Example shows how you can create custom promises
+//! with `Promise::register()` method and resolve them from
+//! you system with `commands.promise(id).resolve(result)`
 use bevy::prelude::*;
 use pecs::prelude::*;
 fn main() {

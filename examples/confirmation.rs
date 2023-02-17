@@ -1,5 +1,8 @@
-//! This example shows how to implemnt exit confirmation
-//! popup with promises. The promise-based loop works like this:
+//! This example shows how to use `pecs` for organizing UI logic
+//! with async operations. We create `exit` button that shows
+//! confirmation popup on press and exit app if confirmed.
+//! 
+//! The promise-based loop works like this:
 //! - create exit button
 //! - loop:     <-------------------------.
 //!   - wait for exit button pressed      |
