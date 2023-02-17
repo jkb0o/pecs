@@ -11,21 +11,21 @@ This is the page with the described examples.
 > https://github.com/jkb0o/pecs/tree/stable/examples
 
 
-### `simple`
+### [`simple`](../examples/simple.rs)
 ```bash
 cargo run --example simple
 ```
 This example shows how to sequentially call promises by chaining them with `then` method.
 It will wait for second, make http request, wait for an response and exit the app.
 
-### `repeat`
+### [`repeat`](../examples/repeat.rs)
 ```bash
 cargo run --example repeat
 ```
 This example demonstrates how to use `Promise::repeat()`
 to create async loops. 
 
-### `custom_timer`
+### [`custom_timer`](../examples/custom_timer.rs)
 ```bash
 cargo run --example custom_timer
 ```
@@ -33,7 +33,7 @@ This Example shows how you can create custom promises
 with `Promise::register()` method and resolve them from
 you system with `commands.promise(id).resolve(result)`
 
-### `combind_vecs`
+### [`combind_vecs`](../examples/combind_vecs.rs)
 ```bash
 cargo run --example combind_vecs
 ```
@@ -42,7 +42,7 @@ in different ways for combining vector of promises
 and react to result when all/any of the passed
 promises got resolved.
 
-### `confirmation`
+### [`confirmation`](../examples/confirmation.rs)
 ```bash
 cargo run --example confirmation
 ```
@@ -63,7 +63,7 @@ The promise-based loop works like this:
 ```
 ![Confirmation](../docs/confirmation.gif)
 
-### `system_state`
+### [`system_state`](../examples/system_state.rs)
 ```bash
 cargo run --example system_state
 ```
