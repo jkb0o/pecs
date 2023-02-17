@@ -62,3 +62,13 @@ The promise-based loop works like this:
 - exit app  <-------------------------`
 ```
 ![Confirmation](../docs/confirmation.gif)
+
+### `system_state`
+```bash
+cargo run --example system_state
+```
+This example shows how promises keep the state of Bevy's system params.
+We create 16 buttons and asyn loop single promise every second.
+Inside the promise we log buttons with changed for the previous second
+`Interaction` component by querying with Changed<Interaction> filter.
+![System State](../docs/system-state.gif)

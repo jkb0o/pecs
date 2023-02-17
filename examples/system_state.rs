@@ -1,7 +1,7 @@
-//! This example shows how promises keeps the state of Bevy's system params.
-//! Here, I create 16 buttons and repeat promise every second.
-//! Inside the promise I log buttons with changed for the previous second
-//! Interaction component by applying Changed<Interaction> filter to Query.
+//! This example shows how promises keep the state of Bevy's system params.
+//! We create 16 buttons and asyn loop single promise every second.
+//! Inside the promise we log buttons with changed for the previous second
+//! `Interaction` component by querying with Changed<Interaction> filter.
 use bevy::prelude::*;
 use pecs::prelude::*;
 
