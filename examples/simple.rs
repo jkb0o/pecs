@@ -12,7 +12,7 @@ fn main() {
 
 fn setup(mut commands: Commands, time: Res<Time>) {
     let start = time.elapsed_seconds();
-    // create PromiseLike chainable commands with the current time as state
+    // create PromiseLike chainable commands with the current time as the state
     commands
         .promise(|| start)
         // will be executed right after current stage
@@ -20,12 +20,12 @@ fn setup(mut commands: Commands, time: Res<Time>) {
             info!("Wait a second..");
             state.asyn().timeout(1.0)
         }))
-        // will be executed after in a second after previous call
+        // will be executed in a second after the previous call
         .then(asyn!(state => {
             info!("How large is is the Bevy main web page?");
             state.asyn().http().get("https://bevyengine.org")
         }))
-        // will be executed after request completes
+        // will be executed after we get the response/error
         .then(asyn!(state, result => {
             match result {
                 Ok(response) => info!("It is {} bytes!", response.bytes.len()),
