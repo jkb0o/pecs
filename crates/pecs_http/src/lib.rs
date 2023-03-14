@@ -10,8 +10,6 @@ use pecs_core::{AsynOps, Promise, PromiseCommand, PromiseId, PromiseLikeBase, Pr
 #[cfg(not(target_arch = "wasm32"))]
 use bevy::tasks::AsyncComputeTaskPool;
 #[cfg(target_arch = "wasm32")]
-use bevy::utils::HashSet;
-#[cfg(target_arch = "wasm32")]
 use std::cell::Cell;
 #[cfg(target_arch = "wasm32")]
 use std::rc::Rc;
@@ -25,47 +23,40 @@ impl Plugin for PromiseHttpPlugin {
         app.init_resource::<Requests>();
         #[cfg(not(target_arch = "wasm32"))]
         app.add_system(process_requests);
-        #[cfg(target_arch = "wasm32")]
-        app.init_resource::<WasmRequests>();
     }
 }
 
 #[cfg(target_arch = "wasm32")]
 #[derive(Clone)]
-pub struct WasmResolver {
-    id: PromiseId,
-    world: Rc<Cell<*mut World>>
-}
+pub struct WasmResolver(Rc<Cell<Option<(PromiseId, *mut World)>>>);
 
 #[cfg(target_arch = "wasm32")]
 impl WasmResolver {
-    pub fn new(world: &mut World, id: PromiseId) -> Self {
-        Self {
-            id,
-            world: Rc::new(Cell::new(world as *mut World))
-        }
+    pub fn new() -> Self {
+        Self(Rc::new(Cell::new(None)))
     }
     pub fn resolve<T: 'static>(&self, value: T) {
-        let world = unsafe { self.world.get().as_mut().unwrap() };
         {
-            let Some(requests) = world.get_resource::<WasmRequests>() else {
+            let Some((id, world_ptr)) = self.0.replace(None) else {
                 return
             };
-            if requests.contains(&self.id) {
-                promise_resolve(world, self.id, (), value)
-            }
-
+            let world = unsafe { world_ptr.as_mut().unwrap() };
+            promise_resolve(world, id, (), value);
         }
-        world.resource_mut::<WasmRequests>().remove(&self.id);
+    }
+
+    pub fn discard(&self) {
+        self.0.replace(None);
+    }
+
+    pub fn register(&self, world: &mut World, id: PromiseId) {
+        self.0.replace(Some((id, world as *mut World)));
     }
 }
 #[cfg(target_arch = "wasm32")]
 unsafe impl Send for WasmResolver { }
 #[cfg(target_arch = "wasm32")]
 unsafe impl Sync for WasmResolver { }
-#[cfg(target_arch = "wasm32")]
-#[derive(Resource, Deref, DerefMut, Default)]
-pub struct WasmRequests(HashSet<PromiseId>);
 
 pub struct Request(ehttp::Request);
 impl Request {
@@ -91,19 +82,17 @@ impl Request {
     pub fn send(self) -> Promise<(), Result<Response, String>> {
         #[cfg(target_arch = "wasm32")]
         {
+            let resolver = WasmResolver::new();
+            let discarder = resolver.clone();
             Promise::register(
-                |world, id| {
-                    world.resource_mut::<WasmRequests>().insert(id);
-                    let resolver = WasmResolver::new(world, id);
+                move |world, id| {
+                    resolver.register(world, id);
                     ehttp::fetch(self.0, move |result| {
                         resolver.resolve(result);
                     });
-                    // let task = AsyncComputeTaskPool::get().spawn(async move { ehttp::fetch_blocking(&self.0) });
-                    // world.resource_mut::<Requests>().insert(id, task);
                 },
-                |world, id| {
-                    // world.resource_mut::<Requests>().remove(&id);
-                    world.resource_mut::<WasmRequests>().remove(&id);
+                move |_world, _id| {
+                    discarder.discard();
                 },
             )
         }
@@ -145,7 +134,6 @@ impl<S: 'static> StatefulRequest<S> {
     }
     pub fn send(self) -> Promise<S, Result<ehttp::Response, String>> {
         self.1.send().map(move |_| self.0)
-        // PromiseResult::Await(self.1.send()).with(self.0)
     }
 }
 
