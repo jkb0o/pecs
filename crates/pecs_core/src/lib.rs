@@ -1,6 +1,6 @@
 //! Core [`Promise`] functionality.
 use bevy::{
-    ecs::system::{BoxedSystem, Command, SystemParam, SystemParamItem},
+    ecs::system::{BoxedSystem, Command, StaticSystemParam, SystemParam},
     prelude::*,
     utils::HashMap,
 };
@@ -156,11 +156,11 @@ impl<T: 'static + SystemParam + Send + Sync> PromiseParams for T {}
 ///
 /// The `Asyn` function can take optional parameters of type [`PromiseParams`] which allow the function to access the
 /// same parameters as Bevy systems. These parameters are passed automatically by `pecs`.
-pub struct Asyn<Input, Output, Params: PromiseParams> {
+pub struct Asyn<Input, Output: 'static, Params: PromiseParams> {
     pub marker: PhantomData<Params>,
-    pub body: fn(In<Input>, SystemParamItem<Params>) -> Output,
+    pub body: fn(In<Input>, StaticSystemParam<Params>) -> Output,
 }
-impl<Input, Otput, Params: PromiseParams> Clone for Asyn<Input, Otput, Params> {
+impl<Input, Otput: 'static, Params: PromiseParams> Clone for Asyn<Input, Otput, Params> {
     fn clone(&self) -> Self {
         Asyn {
             body: self.body.clone(),
@@ -168,22 +168,22 @@ impl<Input, Otput, Params: PromiseParams> Clone for Asyn<Input, Otput, Params> {
         }
     }
 }
-impl<Input, Output, Params: PromiseParams> PartialEq for Asyn<Input, Output, Params> {
+impl<Input, Output: 'static, Params: PromiseParams> PartialEq for Asyn<Input, Output, Params> {
     fn eq(&self, other: &Self) -> bool {
         self.ptr() == other.ptr()
     }
 }
-impl<Input, Output, Params: PromiseParams> Eq for Asyn<Input, Output, Params> {}
-impl<Input, Output, Params: PromiseParams> std::hash::Hash for Asyn<Input, Output, Params> {
+impl<Input, Output: 'static, Params: PromiseParams> Eq for Asyn<Input, Output, Params> {}
+impl<Input, Output: 'static, Params: PromiseParams> std::hash::Hash for Asyn<Input, Output, Params> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.ptr().hash(state)
     }
 }
-impl<Input, Output, Params: PromiseParams> Asyn<Input, Output, Params> {
+impl<Input, Output: 'static, Params: PromiseParams> Asyn<Input, Output, Params> {
     /// Creates a new `Asyn` from a system-like function pointer `body`.
     ///
     /// The `body` function takes two arguments: the input state of type `Input`,
-    /// and a [`SystemParamItem`] of type `Params`. The `Params` type can be used
+    /// and a [`StaticSystemParam`] of type `Params`. The `Params` type can be used
     /// to access [system parameters][bevy::ecs::system::SystemParam] from within
     /// the `Asyn` function.
     ///
@@ -192,14 +192,14 @@ impl<Input, Output, Params: PromiseParams> Asyn<Input, Output, Params> {
     /// [`Into<PromiseResult<S2, R2>>`] trait. The output state and result types
     /// for the resulting `Asyn` function are inferred from the return type of
     /// the `body` function.
-    pub fn new(body: fn(In<Input>, SystemParamItem<Params>) -> Output) -> Self {
+    pub fn new(body: fn(In<Input>, StaticSystemParam<Params>) -> Output) -> Self {
         Asyn {
             body,
             marker: PhantomData,
         }
     }
-    fn ptr(&self) -> *const fn(In<Input>, SystemParamItem<Params>) -> Output {
-        self.body as *const fn(In<Input>, SystemParamItem<Params>) -> Output
+    fn ptr(&self) -> *const fn(In<Input>, StaticSystemParam<Params>) -> Output {
+        self.body as *const fn(In<Input>, StaticSystemParam<Params>) -> Output
     }
 }
 impl<Input: 'static, Output: 'static, Params: PromiseParams> Asyn<Input, Output, Params> {
@@ -307,7 +307,7 @@ impl<S, R> Clone for PromiseRegistry<S, R> {
 }
 
 #[derive(Resource)]
-struct SystemRegistry<In, Out, Params: PromiseParams>(
+struct SystemRegistry<In, Out: 'static, Params: PromiseParams>(
     Arc<RwLock<HashMap<Asyn<In, Out, Params>, BoxedSystem<In, Out>>>>,
 );
 impl<In, Out, Params: PromiseParams> Clone for SystemRegistry<In, Out, Params> {

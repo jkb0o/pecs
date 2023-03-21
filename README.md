@@ -1,3 +1,9 @@
+[![crates.io](https://img.shields.io/crates/v/pecs)](https://crates.io/crates/pecs)
+[![MIT/Apache 2.0](https://img.shields.io/badge/license-MIT%2FApache-blue.svg)](https://github.com/jkb0o/pecs#license)
+[![Bevy tracking](https://img.shields.io/badge/bevy-0.10-lightblue)](https://github.com/bevyengine/bevy/releases/tag/v0.10.0)
+[![docs.rs](https://docs.rs/pecs/badge.svg)](https://docs.rs/pecs)
+
+
 ## About
 `pecs` is a plugin for [Bevy](https://bevyengine.org) that allows you to execute code asynchronously
 by chaining multiple promises as part of Bevy's `ecs` environment.
@@ -9,6 +15,12 @@ Resources:
 - [Examples](https://github.com/jkb0o/pecs/tree/master/examples)
 - [Report an issue](https://github.com/jkb0o/pecs/issues/new)
 - [Provide an idea](https://github.com/jkb0o/pecs/issues/new)
+
+Compatibility:
+| bevy | pecs |
+|------|------|
+| 0.10 | 0.3  |
+| 0.9  | 0.2  |
 
 ### Features
 - Promise chaining with `then()`/`then_repeat()`

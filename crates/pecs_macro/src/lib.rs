@@ -162,7 +162,8 @@ impl AsynFunc {
         quote! {
             #core::Asyn #asyn_spec {
                 marker: ::core::marker::PhantomData::<(#types)>,
-                body: |::bevy::prelude::In(#input), (#pats): (#types)| {
+                body: |::bevy::prelude::In(#input), params: ::bevy::ecs::system::StaticSystemParam<(#types)>| {
+                    let (#pats) = params.into_inner();
                     #body
                 }
             }
@@ -272,7 +273,7 @@ fn impl_any_promises_internal_for(elements: u8) -> TokenStream {
         register = quote! {
             #register
             promise_register(world, #p.with((any_id, #promise_id_targets))
-                .then(Asyn::<_, _, ()>::new(|In((s, r)), ()| {
+                .then(Asyn::<_, _, ()>::new(|In((s, r)), _| {
                     let (any_id, #promise_id_targets) = s.value.clone();
                     Promise::<(), ()>::register(
                         move |world, _id| {
@@ -376,7 +377,7 @@ fn impl_all_promises_internal_for(elements: u8) -> TokenStream {
         register = quote! {
             #register
             promise_register(world, #p.with((any_id, #v, #promise_id_targets))
-                .then(Asyn::<_, _, ()>::new(|In((s, r)), ()| {
+                .then(Asyn::<_, _, ()>::new(|In((s, r)), _| {
                     let (any_id, mut value, #promise_id_targets) = s.value.clone();
                     Promise::<(), ()>::register(
                         move |world, _id| {

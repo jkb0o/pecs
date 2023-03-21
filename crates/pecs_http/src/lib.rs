@@ -10,11 +10,11 @@ use pecs_core::{AsynOps, Promise, PromiseCommand, PromiseId, PromiseLikeBase, Pr
 #[cfg(not(target_arch = "wasm32"))]
 use bevy::tasks::AsyncComputeTaskPool;
 #[cfg(target_arch = "wasm32")]
+use pecs_core::promise_resolve;
+#[cfg(target_arch = "wasm32")]
 use std::cell::Cell;
 #[cfg(target_arch = "wasm32")]
 use std::rc::Rc;
-#[cfg(target_arch = "wasm32")]
-use pecs_core::promise_resolve;
 
 pub struct PromiseHttpPlugin;
 impl Plugin for PromiseHttpPlugin {
@@ -54,9 +54,9 @@ impl WasmResolver {
     }
 }
 #[cfg(target_arch = "wasm32")]
-unsafe impl Send for WasmResolver { }
+unsafe impl Send for WasmResolver {}
 #[cfg(target_arch = "wasm32")]
-unsafe impl Sync for WasmResolver { }
+unsafe impl Sync for WasmResolver {}
 
 pub struct Request(ehttp::Request);
 impl Request {
