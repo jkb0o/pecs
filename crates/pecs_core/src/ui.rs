@@ -14,7 +14,7 @@ pub mod asyn {
 pub struct PromiseUiPlugin;
 impl Plugin for PromiseUiPlugin {
     fn build(&self, app: &mut App) {
-        app.add_system(resolve_buttons);
+        app.add_systems(Update, resolve_buttons);
     }
 }
 
@@ -42,7 +42,7 @@ impl AsynButton {
                 world.spawn(AsynButtonIteraction {
                     entity,
                     promise: id,
-                    interaction: Interaction::Clicked,
+                    interaction: Interaction::Pressed,
                 });
             },
             move |world, id| {
