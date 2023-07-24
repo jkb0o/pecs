@@ -26,12 +26,12 @@ pub struct Timers(HashMap<PromiseId, f32>);
 
 pub fn process_timers(time: Res<Time>, mut commands: Commands, mut timers: ResMut<Timers>) {
     let elapsed = time.elapsed_seconds();
-    timers.drain_filter(|promise, end| {
+    timers.retain(|promise, end| {
         if &elapsed >= end {
             commands.add(PromiseCommand::resolve(*promise, ()));
-            true
-        } else {
             false
+        } else {
+            true
         }
     });
 }

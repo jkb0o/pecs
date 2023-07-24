@@ -22,7 +22,9 @@ impl Plugin for PromiseHttpPlugin {
         #[cfg(not(target_arch = "wasm32"))]
         app.init_resource::<Requests>();
         #[cfg(not(target_arch = "wasm32"))]
-        app.add_system(process_requests);
+        app.add_systems(Update, process_requests);
+        // Silence unused variable warnings on non-wasm platforms
+        let _ = app;
     }
 }
 
@@ -162,12 +164,12 @@ impl<S> HttpOpsExtension<S> for AsynOps<S> {
 pub struct Requests(HashMap<PromiseId, Task<Result<Response, String>>>);
 
 pub fn process_requests(mut requests: ResMut<Requests>, mut commands: Commands) {
-    requests.drain_filter(|promise, mut task| {
+    requests.retain(|promise, mut task| {
         if let Some(response) = future::block_on(future::poll_once(&mut task)) {
             commands.add(PromiseCommand::resolve(*promise, response));
-            true
-        } else {
             false
+        } else {
+            true
         }
     });
 }

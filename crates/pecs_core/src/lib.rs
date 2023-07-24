@@ -222,7 +222,7 @@ impl<Input: 'static, Output: 'static, Params: PromiseParams> Asyn<Input, Output,
             sys
         });
         let result = system.run(input, world);
-        system.apply_buffers(world);
+        system.apply_deferred(world);
         result
     }
 }
@@ -599,13 +599,13 @@ impl<R> PromiseCommand<R> {
 }
 
 impl<R: 'static + Send + Sync> Command for PromiseCommand<R> {
-    fn write(self, world: &mut World) {
+    fn apply(self, world: &mut World) {
         promise_resolve::<(), R>(world, self.id, (), self.result);
     }
 }
 
 impl<R: 'static, S: 'static> Command for Promise<S, R> {
-    fn write(self, world: &mut World) {
+    fn apply(self, world: &mut World) {
         promise_register::<S, R>(world, self)
     }
 }

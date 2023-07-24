@@ -19,6 +19,7 @@ Resources:
 Compatibility:
 | bevy | pecs |
 |------|------|
+| 0.11 | 0.4  |
 | 0.10 | 0.3  |
 | 0.9  | 0.2  |
 
@@ -45,7 +46,7 @@ fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .add_plugin(PecsPlugin)
-        .add_startup_system(setup)
+        .add_systems(Startup, setup)
         .run();
 }
 

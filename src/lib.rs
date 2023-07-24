@@ -289,10 +289,10 @@ pub mod prelude {
     impl Plugin for PecsPlugin {
         fn build(&self, app: &mut App) {
             app.init_resource::<pecs_core::timer::Timers>();
-            app.add_system(pecs_core::timer::process_timers);
+            app.add_systems(Update, pecs_core::timer::process_timers);
 
-            app.add_plugin(pecs_http::PromiseHttpPlugin);
-            app.add_plugin(pecs_core::ui::PromiseUiPlugin);
+            app.add_plugins(pecs_http::PromiseHttpPlugin);
+            app.add_plugins(pecs_core::ui::PromiseUiPlugin);
         }
     }
 
