@@ -8,8 +8,8 @@ use pecs::prelude::*;
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
-        .add_plugin(PecsPlugin)
-        .add_startup_system(setup)
+        .add_plugins(PecsPlugin)
+        .add_systems(Startup, setup)
         .run();
 }
 
@@ -31,7 +31,8 @@ fn setup(mut commands: Commands) {
     commands
         .spawn(NodeBundle {
             style: Style {
-                size: Size::new(Val::Percent(100.), Val::Percent(100.)),
+                width: Val::Percent(100.),
+                height: Val::Percent(100.),
                 justify_content: JustifyContent::SpaceAround,
                 align_content: AlignContent::SpaceAround,
                 flex_direction: FlexDirection::Column,
@@ -44,7 +45,8 @@ fn setup(mut commands: Commands) {
                 parent
                     .spawn(NodeBundle {
                         style: Style {
-                            size: Size::new(Val::Percent(100.), Val::Percent(20.)),
+                            width: Val::Percent(100.),
+                            height: Val::Percent(20.),
                             flex_direction: FlexDirection::Row,
                             justify_content: JustifyContent::SpaceAround,
                             ..default()
@@ -57,7 +59,8 @@ fn setup(mut commands: Commands) {
                                 .spawn(ButtonBundle {
                                     background_color: Color::rgb(0.8, 0.8, 0.8).into(),
                                     style: Style {
-                                        size: Size::new(Val::Percent(20.), Val::Percent(100.)),
+                                        width: Val::Percent(20.),
+                                        height: Val::Percent(100.),
                                         ..default()
                                     },
                                     ..default()

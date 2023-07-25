@@ -20,8 +20,8 @@ const COLOR_LIGHT: Color = Color::rgb(0.8, 0.8, 0.8);
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
-        .add_plugin(PecsPlugin)
-        .add_startup_system(setup)
+        .add_plugins(PecsPlugin)
+        .add_systems(Startup, setup)
         .run();
 }
 
@@ -30,7 +30,8 @@ fn setup(mut commands: Commands) {
     let root = commands
         .spawn(NodeBundle {
             style: Style {
-                size: Size::new(Val::Percent(100.), Val::Percent(100.)),
+                width: Val::Percent(100.),
+                height: Val::Percent(100.),
                 ..default()
             },
             ..default()
@@ -138,7 +139,10 @@ impl GameState {
                         background_color: COLOR_LIGHT.into(),
                         style: Style {
                             position_type: PositionType::Absolute,
-                            position: UiRect::all(Val::Percent(25.)),
+                            left: Val::Percent(25.),
+                            right: Val::Percent(25.),
+                            top: Val::Percent(25.),
+                            bottom: Val::Percent(25.),
                             ..default()
                         },
                         ..default()
@@ -147,7 +151,8 @@ impl GameState {
                         popup
                             .spawn(NodeBundle {
                                 style: Style {
-                                    size: Size::new(Val::Percent(100.), Val::Percent(100.)),
+                                    width: Val::Percent(100.),
+                                    height: Val::Percent(100.),
                                     flex_direction: FlexDirection::Column,
                                     align_content: AlignContent::Center,
                                     align_items: AlignItems::Center,
@@ -169,7 +174,8 @@ impl GameState {
                                     style: Style {
                                         flex_direction: FlexDirection::Row,
                                         justify_content: JustifyContent::SpaceAround,
-                                        size: Size::new(Val::Percent(100.), Val::Auto),
+                                        width: Val::Percent(100.),
+                                        height: Val::Auto,
                                         ..default()
                                     },
                                     ..default()
@@ -190,7 +196,8 @@ fn add_button(text: &'static str, commands: &mut Commands, asset_server: &Res<As
     commands
         .spawn(ButtonBundle {
             style: Style {
-                size: Size::new(Val::Px(150.0), Val::Px(65.0)),
+                width: Val::Px(150.0),
+                height: Val::Px(65.0),
                 margin: UiRect::all(Val::Auto),
                 justify_content: JustifyContent::Center,
                 align_items: AlignItems::Center,

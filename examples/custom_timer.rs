@@ -6,9 +6,9 @@ use pecs::prelude::*;
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
-        .add_plugin(PecsPlugin)
-        .add_system(process_timers_system)
-        .add_startup_system(setup)
+        .add_plugins(PecsPlugin)
+        .add_systems(Startup, setup)
+        .add_systems(Update, process_timers_system)
         .run();
 }
 

@@ -177,6 +177,9 @@
 //! For example, suppose you have a stateful promise that increments a counter, waits for some
 //! time, and then logs the counter value. Here's how you could implement it:
 //! ```rust
+//! use bevy::prelude::*;
+//! use pecs::prelude::*;
+//! 
 //! fn setup(mut commands: Commands) {
 //!     commands
 //!         // create a promise with int state
@@ -202,6 +205,9 @@
 //! resolves when any of provided promises have resolved with current state itself:
 //!
 //! ```rust
+//! use bevy::prelude::*;
+//! use pecs::prelude::*;
+//! 
 //! fn setup(mut commands: Commands, time: Res<Time>) {
 //!     let start = time.elapsed_seconds();
 //!     commands
