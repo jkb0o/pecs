@@ -1,6 +1,6 @@
 [![crates.io](https://img.shields.io/crates/v/pecs)](https://crates.io/crates/pecs)
 [![MIT/Apache 2.0](https://img.shields.io/badge/license-MIT%2FApache-blue.svg)](https://github.com/jkb0o/pecs#license)
-[![Bevy tracking](https://img.shields.io/badge/bevy-0.10-lightblue)](https://github.com/bevyengine/bevy/releases/tag/v0.10.0)
+[![Bevy tracking](https://img.shields.io/badge/bevy-0.11-lightblue)](https://github.com/bevyengine/bevy/releases/tag/v0.11.0)
 [![docs.rs](https://docs.rs/pecs/badge.svg)](https://docs.rs/pecs)
 
 
