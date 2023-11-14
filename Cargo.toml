@@ -13,7 +13,7 @@ repository = "https://github.com/jkb0o/pecs"
 members = ["crates/pecs_core", "crates/pecs_http", "crates/pecs_macro"]
 
 [dependencies]
-bevy = "0.11"
+bevy = "0.12"
 pecs_macro = { path = "crates/pecs_macro", version = "0.4.0" }
 pecs_core = { path = "crates/pecs_core", version = "0.4.0" }
 pecs_http = { path = "crates/pecs_http", version = "0.4.0" }
