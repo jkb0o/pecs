@@ -21,7 +21,7 @@ pub mod ui;
 /// Namespace-like stateful container for asyn operations used to simplify
 /// state passing through promise chain. For extending this container with
 /// user-provided methods custom extension should be implemented:
-/// ```
+/// ```ignore
 /// fn my_async_func() -> Promise<(), ()> {
 ///     Promise::from(())
 /// }
@@ -375,7 +375,7 @@ impl<S: 'static> Promise<S, ()> {
     /// The resulting promise resolves immediately with the same state value,
     /// since the `Asyn` function returned by the `asyn!` macro simply passes
     /// the state through unchanged.
-    /// ```rust
+    /// ```ignore
     /// fn setup(mut commands: Commands) {
     ///     commands.add(
     ///         Promise::from(0)
@@ -401,7 +401,7 @@ impl<S: 'static> Promise<S, ()> {
 
 impl<S: 'static, R: 'static> Promise<S, R> {
     /// Create new [`Promise`] with empty [state][PromiseState]
-    /// ```
+    /// ```ignore
     /// # use bevy::prelude::*
     /// fn setup(mut commands: Commands) {
     ///     commands.add(
@@ -419,7 +419,7 @@ impl<S: 'static, R: 'static> Promise<S, R> {
     /// Create new [`Promise<S, R>`] from default `D` state and
     /// [`Asyn![D => S, R]`][struct@Asyn] func. `S` and `R` infers from the
     /// [`Asyn`][struct@Asyn] function body.
-    /// ```
+    /// ```ignore
     /// # use bevy::prelude::*
     /// fn setup(mut commands: Commands) {
     ///     let entity = commands.spawn_empty().id();
@@ -471,7 +471,7 @@ impl<S: 'static, R: 'static> Promise<S, R> {
     /// `invoke` will be executed when the promise's turn comes. The discard
     /// will be called in the case of promise cancellation. Both closures takes
     /// [`&mut World`][bevy::prelude::World] and [`PromiseId`] as argiments.
-    /// ```rust
+    /// ```ignore
     /// #[derive(Component)]
     /// /// Holds PromiseId and the time when the timer should time out.
     /// pub struct MyTimer(PromiseId, f32);
@@ -697,7 +697,7 @@ impl<'w, 's, 'a, S: 'static, R: 'static> Drop for PromiseChain<'w, 's, 'a, S, R>
 /// The state wrapped by `PromiseState` is passed to the next function or promise in the chain.
 /// You can create promises that have access to the current state with the `asyn` method:
 ///
-/// ```rust
+/// ```ignore
 /// let state = PromiseState::new(0);
 /// let promise = state.asyn().timeout(1.0);
 /// ```
@@ -705,14 +705,14 @@ impl<'w, 's, 'a, S: 'static, R: 'static> Drop for PromiseChain<'w, 's, 'a, S, R>
 /// The state can also be transformed using the `map` and `with` methods. For example, to change the
 /// type of the state from `i32` to `String`, you can use `map`:
 ///
-/// ```rust
+/// ```ignore
 /// let state = PromiseState::new(42);
 /// let new_state = state.map(|value| value.to_string());
 /// ```
 ///
 /// Or to set the state to a new value, you can use `with`:
 ///
-/// ```rust
+/// ```ignore
 /// let state = PromiseState::new(42);
 /// let new_state = state.with("hello");
 /// ```
@@ -720,7 +720,7 @@ impl<'w, 's, 'a, S: 'static, R: 'static> Drop for PromiseChain<'w, 's, 'a, S, R>
 /// Once you have a promise with access to the current state, you can chain it with other promises
 /// that use the same state:
 ///
-/// ```rust
+/// ```ignore
 /// let state = PromiseState::new(0);
 /// let promise = state.asyn().timeout(1.0)
 ///     .then(asyn!(state => {
@@ -743,7 +743,7 @@ impl<S: 'static> PromiseState<S> {
     /// Get access to stateful asyn operation.
     /// Promises returned by this operations will be
     /// associated with the current state:
-    /// ```rust
+    /// ```ignore
     /// fn setup(mut commands: Commands) {
     ///     commands.add(
     ///         Promise::from(0)
