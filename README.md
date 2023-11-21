@@ -19,6 +19,7 @@ Resources:
 Compatibility:
 | bevy | pecs |
 |------|------|
+| 0.12 | 0.5  |
 | 0.11 | 0.4  |
 | 0.10 | 0.3  |
 | 0.9  | 0.2  |
@@ -39,51 +40,7 @@ Compatibility:
 - Result mapping via `with_result(value)`/`map_result(func)` (changes result type/value over chain calls).
 
 ## Example
-```rust
-use bevy::prelude::*;
-use pecs::prelude::*;
-fn main() {
-    App::new()
-        .add_plugins(DefaultPlugins)
-        .add_plugin(PecsPlugin)
-        .add_systems(Startup, setup)
-        .run();
-}
-
-fn setup(mut commands: Commands, time: Res<Time>) {
-    let start = time.elapsed_seconds();
-    commands
-        // create PromiseLike chainable commands
-        // with the current time as state
-        .promise(|| start)
-        // will be executed right after current stage
-        .then(asyn!(state => {
-            info!("Wait a second..");
-            state.asyn().timeout(1.0)
-        }))
-        // will be executed after in a second after previous call
-        .then(asyn!(state => {
-            info!("How large is is the Bevy main web page?");
-            state.asyn().http().get("https://bevyengine.org")
-        }))
-        // will be executed after request completes
-        .then(asyn!(state, result => {
-            match result {
-                Ok(response) => info!("It is {} bytes!", response.bytes.len()),
-                Err(err) => info!("Ahhh... something goes wrong: {err}")
-            }
-            state.pass()
-        }))
-        // will be executed right after the previous one
-        .then(asyn!(state, time: Res<Time> => {
-            let duration = time.elapsed_seconds() - state.value;
-            info!("It tooks {duration:0.2}s to do this job.");
-            info!("Exiting now");
-            asyn::app::exit()
-        }));
-}
-```
-There is otput of the above example, pay some attention to time stamps:
+There is the output of the above example, pay some attention to time stamps:
 ```text
 18.667 INFO bevy_render::renderer: AdapterInfo { ... }
 18.835 INFO simple: Wait a second..
@@ -94,10 +51,10 @@ There is otput of the above example, pay some attention to time stamps:
 ```
 
 ## Work in Progress
-This crate is pretty young. API could and will change. App may crash. Some
+This crate is pretty young. API could and will change. The app may crash. Some
 promises could silently drop. Documentation is incomplete.
 
-But. But. Examples works like a charm. And this fact gives us a lot of hope.
+But. But. Examples work like a charm. And this fact gives us a lot of hope.
 
 
 ## License
