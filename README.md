@@ -1,6 +1,6 @@
 [![crates.io](https://img.shields.io/crates/v/pecs)](https://crates.io/crates/pecs)
 [![MIT/Apache 2.0](https://img.shields.io/badge/license-MIT%2FApache-blue.svg)](https://github.com/jkb0o/pecs#license)
-[![Bevy tracking](https://img.shields.io/badge/bevy-0.12-lightblue)](https://github.com/bevyengine/bevy/releases/tag/v0.12.0)
+[![Bevy tracking](https://img.shields.io/badge/bevy-0.13-lightblue)](https://github.com/bevyengine/bevy/releases/tag/v0.12.0)
 [![docs.rs](https://docs.rs/pecs/badge.svg)](https://docs.rs/pecs)
 
 
@@ -41,6 +41,50 @@ Compatibility:
 - Result mapping via `with_result(value)`/`map_result(func)` (changes result type/value over chain calls).
 
 ## Example
+```rust
+use bevy::prelude::*;
+use pecs::prelude::*;
+fn main() {
+    App::new()
+        .add_plugins(DefaultPlugins)
+        .add_plugins(PecsPlugin)
+        .add_systems(Startup, setup)
+        .run();
+}
+
+fn setup(mut commands: Commands, time: Res<Time>) {
+    let start = time.elapsed_seconds();
+    commands
+        // create PromiseLike chainable commands
+        // with the current time as state
+        .promise(|| start)
+        // will be executed right after current stage
+        .then(asyn!(state => {
+            info!("Wait a second..");
+            state.asyn().timeout(1.0)
+        }))
+        // will be executed after in a second after previous call
+        .then(asyn!(state => {
+            info!("How large is is the Bevy main web page?");
+            state.asyn().http().get("https://bevyengine.org")
+        }))
+        // will be executed after request completes
+        .then(asyn!(state, result => {
+            match result {
+                Ok(response) => info!("It is {} bytes!", response.bytes.len()),
+                Err(err) => info!("Ahhh... something goes wrong: {err}")
+            }
+            state.pass()
+        }))
+        // will be executed right after the previous one
+        .then(asyn!(state, time: Res<Time> => {
+            let duration = time.elapsed_seconds() - state.value;
+            info!("It took {duration:0.2}s to do this job.");
+            info!("Exiting now");
+            asyn::app::exit()
+        }));
+}
+```
 There is the output of the above example, pay some attention to time stamps:
 ```text
 18.667 INFO bevy_render::renderer: AdapterInfo { ... }
