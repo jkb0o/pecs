@@ -12,7 +12,7 @@ fn main() {
 }
 
 fn setup(mut commands: Commands) {
-    commands.add(
+    commands.queue(
         Promise::repeat(
             0,
             asyn!(state => {

@@ -2,7 +2,7 @@
 
 use bevy::prelude::*;
 use bevy::tasks::Task;
-use bevy::utils::HashMap;
+use bevy::platform::collections::HashMap;
 pub use ehttp::Response;
 use futures_lite::future;
 use pecs_core::{AsynOps, Promise, PromiseCommand, PromiseId, PromiseLikeBase, PromiseResult};
@@ -166,7 +166,7 @@ pub struct Requests(HashMap<PromiseId, Task<Result<Response, String>>>);
 pub fn process_requests(mut requests: ResMut<Requests>, mut commands: Commands) {
     requests.retain(|promise, mut task| {
         if let Some(response) = future::block_on(future::poll_once(&mut task)) {
-            commands.add(PromiseCommand::resolve(*promise, response));
+            commands.queue(PromiseCommand::resolve(*promise, response));
             false
         } else {
             true

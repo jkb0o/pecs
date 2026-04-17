@@ -15,7 +15,7 @@ fn main() {
 const URLS: &[&'static str] = &["https://google.com", "https://bevyengine.org", "https://github.com"];
 
 fn setup(mut commands: Commands) {
-    commands.add(
+    commands.queue(
         // This is how Promise::all works in general:
         Promise::start(asyn!(_ => {
             info!("Requesting all {} urls", URLS.len());
@@ -116,7 +116,7 @@ fn setup(mut commands: Commands) {
         // To get the time you can use bevy Time resource
         .then(asyn!(state, _, time: Res<Time> => {
             info!("Tracking time to get response from all requests");
-            let started_at = time.elapsed_seconds();
+            let started_at = time.elapsed_secs();
             let requests = URLS
                 .into_iter()
                 .map(|url| asyn::http::get(url).send())
@@ -133,7 +133,7 @@ fn setup(mut commands: Commands) {
         // state is more interesting: its type is
         // PromiseState<f32>
         .then(asyn!(state, _, time: Res<Time> => {
-            let current_time = time.elapsed_seconds();
+            let current_time = time.elapsed_secs();
             let delta = current_time - state.value;
             info!("Time to complete all requests: {delta:0.3}");
 
@@ -148,7 +148,7 @@ fn setup(mut commands: Commands) {
             state.any(requests)
         }))
         .then(asyn!(state, _, time: Res<Time> => {
-            let current_time = time.elapsed_seconds();
+            let current_time = time.elapsed_secs();
             let delta = current_time - state.value;
             info!("Time to complete fastest request: {delta:0.3}");
             state.value = current_time;
@@ -164,7 +164,7 @@ fn setup(mut commands: Commands) {
                 .with(state.value)
         }))
         .then(asyn!(state, _, time: Res<Time> => {
-            let current_time = time.elapsed_seconds();
+            let current_time = time.elapsed_secs();
             let delta = current_time - state.value;
             info!("Time to complete fastest request: {delta:0.3}");
             state.pass()

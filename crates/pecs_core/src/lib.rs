@@ -1,8 +1,9 @@
 //! Core [`Promise`] functionality.
+use bevy::platform::collections::HashMap;
+use bevy::prelude::Command;
 use bevy::{
-    ecs::system::{BoxedSystem, Command, StaticSystemParam, SystemParam},
+    ecs::system::{Commands, StaticSystemParam, SystemParam},
     prelude::*,
-    utils::HashMap,
 };
 use pecs_macro::{asyn, impl_all_promises, impl_any_promises};
 use std::{
@@ -45,7 +46,7 @@ pub mod ui;
 ///
 /// // now you my_async_func could be used in both stateful/stateles ways
 /// fn setup(mut commands: Commands) {
-///     commands.add(
+///     commands.queue(
 ///         Promise::from(0)
 ///         .then(asyn!(state => {
 ///             // stateful, state passes to the next call
@@ -160,6 +161,7 @@ pub struct Asyn<Input, Output: 'static, Params: PromiseParams> {
     pub marker: PhantomData<Params>,
     pub body: fn(In<Input>, StaticSystemParam<Params>) -> Output,
 }
+
 impl<Input, Otput: 'static, Params: PromiseParams> Clone for Asyn<Input, Otput, Params> {
     fn clone(&self) -> Self {
         Asyn {
@@ -202,28 +204,13 @@ impl<Input, Output: 'static, Params: PromiseParams> Asyn<Input, Output, Params> 
         self.body as *const fn(In<Input>, StaticSystemParam<Params>) -> Output
     }
 }
+
 impl<Input: 'static, Output: 'static, Params: PromiseParams> Asyn<Input, Output, Params> {
-    /// Executes the `Asyn` with the given `input` and [`World`][bevy::prelude::World].
-    ///
-    /// This method runs the `Asyn` with the given `input` and `World` context, returning
-    /// the result of the execution. The `input` argument is used as the first argument
-    /// when calling the system-like function `body` associated with the `Asyn`. The `World`
-    /// argument is used to provide access to any necessary `SystemParam`s. The return
-    /// value of the `run` method is the output of the system-like function.
     pub fn run(&self, input: Input, world: &mut World) -> Output {
-        let registry = world
-            .get_resource_or_insert_with(SystemRegistry::<Input, Output, Params>::default)
-            .clone();
-        let mut write = registry.0.write().unwrap();
-        let key = self.clone();
-        let system = write.entry(key).or_insert_with(|| {
-            let mut sys = Box::new(IntoSystem::into_system(self.body));
-            sys.initialize(world);
-            sys
-        });
-        let result = system.run(input, world);
-        system.apply_deferred(world);
-        result
+        let body = self.body;
+        let system_id = world.register_system(body);
+        let result = world.run_system_with(system_id, input);
+        result.expect("system run failed")
     }
 }
 
@@ -307,19 +294,8 @@ impl<S, R> Clone for PromiseRegistry<S, R> {
 }
 
 #[derive(Resource)]
-struct SystemRegistry<In, Out: 'static, Params: PromiseParams>(
-    Arc<RwLock<HashMap<Asyn<In, Out, Params>, BoxedSystem<In, Out>>>>,
-);
-impl<In, Out, Params: PromiseParams> Clone for SystemRegistry<In, Out, Params> {
-    fn clone(&self) -> Self {
-        SystemRegistry(self.0.clone())
-    }
-}
-impl<In, Out, Params: PromiseParams> Default for SystemRegistry<In, Out, Params> {
-    fn default() -> Self {
-        SystemRegistry(Arc::new(RwLock::new(HashMap::new())))
-    }
-}
+#[allow(dead_code)]
+struct SystemRegistry<In, Out, Params>(std::marker::PhantomData<fn(In, Params, Out)>);
 
 /// An enumeration used to control the behavior of a loop in a [`repeat(asyn!(...))`][Promise::repeat] construct.
 ///
@@ -377,7 +353,7 @@ impl<S: 'static> Promise<S, ()> {
     /// the state through unchanged.
     /// ```ignore
     /// fn setup(mut commands: Commands) {
-    ///     commands.add(
+    ///     commands.queue(
     ///         Promise::from(0)
     ///             .then(asyn!(state => {
     ///                 state.value += 1;
@@ -404,7 +380,7 @@ impl<S: 'static, R: 'static> Promise<S, R> {
     /// ```ignore
     /// # use bevy::prelude::*
     /// fn setup(mut commands: Commands) {
-    ///     commands.add(
+    ///     commands.queue(
     ///         // type of the `state` is infered as `PromiseState<()>`
     ///         Promise::start(asyn!(state => {
     ///             info!("I'm new Promise with empty state");
@@ -423,7 +399,7 @@ impl<S: 'static, R: 'static> Promise<S, R> {
     /// # use bevy::prelude::*
     /// fn setup(mut commands: Commands) {
     ///     let entity = commands.spawn_empty().id();
-    ///     commands.add(
+    ///     commands.queue(
     ///         // type of the `state` is infered as `PromiseState<Entity>`
     ///         Promise::new(entity, asyn!(state => {
     ///             info!("I'm started with some entity {:?}", state.value);
@@ -481,7 +457,7 @@ impl<S: 'static, R: 'static> Promise<S, R> {
     ///     Promise::register(
     ///         // this will be invoked when promise's turn comes
     ///         move |world, id| {
-    ///             let now = world.resource::<Time>().elapsed_seconds();
+    ///             let now = world.resource::<Time>().elapsed_secs();
     ///             // store timer
     ///             world.spawn(MyTimer(id, now + duration));
     ///         },
@@ -504,7 +480,7 @@ impl<S: 'static, R: 'static> Promise<S, R> {
     ///
     /// /// iterate ofver all timers and resolves completed
     /// pub fn process_timers_system(timers: Query<(Entity, &MyTimer)>, mut commands: Commands, time: Res<Time>) {
-    ///     let now = time.elapsed_seconds();
+    ///     let now = time.elapsed_secs();
     ///     for (entity, timer) in timers.iter().filter(|(_, t)| t.1 < now) {
     ///         let promise_id = timer.0;
     ///         commands.promise(promise_id).resolve(());
@@ -514,7 +490,7 @@ impl<S: 'static, R: 'static> Promise<S, R> {
     ///
     /// fn setup(mut commands: Commands) {
     ///     // `delay()` can be called from inside promise
-    ///     commands.add(
+    ///     commands.queue(
     ///         Promise::start(asyn!(_state => {
     ///             info!("Starting");
     ///             delay(1.)
@@ -526,7 +502,7 @@ impl<S: 'static, R: 'static> Promise<S, R> {
     ///     );
     ///
     ///     // or queued directly to Commands
-    ///     commands.add(delay(2.).then(asyn!(s, _ => {
+    ///     commands.queue(delay(2.).then(asyn!(s, _ => {
     ///         info!("I'm another timer");
     ///         s.pass()
     ///     })));
@@ -623,7 +599,7 @@ impl<'w, 's, 'a> PromiseCommands<'w, 's, 'a, PromiseId> {
     pub fn resolve<R: 'static + Send + Sync>(&mut self, value: R) {
         let commands = mem::take(&mut self.commands).unwrap();
         let id = mem::take(&mut self.data).unwrap();
-        commands.add(PromiseCommand::<R>::resolve(id, value));
+        commands.queue(PromiseCommand::<R>::resolve(id, value));
     }
 }
 impl<'w, 's, 'a, T> Drop for PromiseCommands<'w, 's, 'a, T> {
@@ -672,7 +648,7 @@ impl<'w, 's, S: 'static, R: 'static> PromiseCommandsExtension<'w, 's, Promise<S,
         PromiseCommands {
             data: Some(arg),
             commands: Some(self),
-            finally: Some(|commands, promise| commands.add(promise)),
+            finally: Some(|commands, promise| commands.queue(promise)),
         }
     }
 }
@@ -686,7 +662,7 @@ impl<'w, 's, 'a, S: 'static, R: 'static> Drop for PromiseChain<'w, 's, 'a, S, R>
     fn drop(&mut self) {
         if let Some(commands) = mem::take(&mut self.commands) {
             if let Some(promise) = mem::take(&mut self.promise) {
-                commands.add(|world: &mut World| promise_register(world, promise))
+                commands.queue(|world: &mut World| promise_register(world, promise))
             }
         }
     }
@@ -745,7 +721,7 @@ impl<S: 'static> PromiseState<S> {
     /// associated with the current state:
     /// ```ignore
     /// fn setup(mut commands: Commands) {
-    ///     commands.add(
+    ///     commands.queue(
     ///         Promise::from(0)
     ///         .then(asyn!(state => {
     ///             state.value += 1;

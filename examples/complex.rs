@@ -10,10 +10,10 @@ fn main() {
 }
 
 fn setup(mut commands: Commands) {
-    commands.spawn(Camera2dBundle::default());
-    commands.add(
+    commands.spawn(Camera2d);
+    commands.queue(
         Promise::start(asyn!(s, time: Res<Time> => {
-            let t = time.elapsed_seconds();
+            let t = time.elapsed_secs();
             info!("start with 31, started at {t}, start time stored in state.");
             s.map(|_| t).resolve(31)
         }))
@@ -35,7 +35,7 @@ fn setup(mut commands: Commands) {
         }))
         .then(asyn!(s, _, mut commands: Commands => {
             info!("complete after 1.5 sec delay, adding custom command");
-            commands.add(|_: &mut World| info!("Executing custom command at the end."));
+            commands.queue(|_: &mut World| info!("Executing custom command at the end."));
             let timeout = rand();
             info!("Requesting https:://google.com with timeout {timeout:0.2}s");
             s.any((
@@ -136,7 +136,7 @@ fn setup(mut commands: Commands) {
         .then(asyn!(s, _, time: Res<Time> => {
             info!(
                 "Done, time to process: {} (start time took from state {}",
-                time.elapsed_seconds() - s.value,
+                time.elapsed_secs() - s.value,
                 s
             );
             asyn::app::exit()
@@ -151,7 +151,7 @@ fn log_request(url: &'static str) -> Promise<(), f32> {
         url,
         asyn!(|s, time: Res<Time>| {
             let url = s.value;
-            let start = time.elapsed_seconds();
+            let start = time.elapsed_secs();
             info!("Requesting {url} at {start:0.2}");
             s.map(|url| (url, start)).asyn().http().get(url)
         }),
@@ -161,7 +161,7 @@ fn log_request(url: &'static str) -> Promise<(), f32> {
             Ok(r) => info!("{} respond with {}, body size: {}", s.value.0, r.status, r.bytes.len()),
             Err(e) => warn!("Error requesting {}: {e}", s.value.0),
         }
-        let duration = time.elapsed_seconds() - s.value.1;
+        let duration = time.elapsed_secs() - s.value.1;
         s.map(|_| ()).resolve(duration)
     }))
 }

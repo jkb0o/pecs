@@ -4,7 +4,7 @@ pub fn timeout(duration: f32) -> Promise<(), ()> {
     Promise::<(), ()>::register(
         move |world, id| {
             let time = world.resource::<Time>();
-            let end = time.elapsed_seconds() + duration - time.delta_seconds();
+            let end = time.elapsed_secs() + duration - time.delta_secs();
             world.resource_mut::<Timers>().insert(id, end);
         },
         move |world, id| {
@@ -25,10 +25,10 @@ impl<S: 'static> TimerOpsExtension<S> for AsynOps<S> {
 pub struct Timers(HashMap<PromiseId, f32>);
 
 pub fn process_timers(time: Res<Time>, mut commands: Commands, mut timers: ResMut<Timers>) {
-    let elapsed = time.elapsed_seconds();
+    let elapsed = time.elapsed_secs();
     timers.retain(|promise, end| {
         if &elapsed >= end {
-            commands.add(PromiseCommand::resolve(*promise, ()));
+            commands.queue(PromiseCommand::resolve(*promise, ()));
             false
         } else {
             true

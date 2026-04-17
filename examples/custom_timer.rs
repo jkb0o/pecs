@@ -21,7 +21,7 @@ pub fn delay(duration: f32) -> Promise<(), ()> {
     Promise::register(
         // this will be invoked when promise's turn comes
         move |world, id| {
-            let now = world.resource::<Time>().elapsed_seconds();
+            let now = world.resource::<Time>().elapsed_secs();
             // store timer
             world.spawn(MyTimer(id, now + duration));
         },
@@ -44,7 +44,7 @@ pub fn delay(duration: f32) -> Promise<(), ()> {
 
 /// iterate ofver all timers and resolves completed
 pub fn process_timers_system(timers: Query<(Entity, &MyTimer)>, mut commands: Commands, time: Res<Time>) {
-    let now = time.elapsed_seconds();
+    let now = time.elapsed_secs();
     for (entity, timer) in timers.iter().filter(|(_, t)| t.1 < now) {
         let promise_id = timer.0;
         commands.promise(promise_id).resolve(());

@@ -14,7 +14,7 @@ fn main() {
 }
 
 fn setup(mut commands: Commands) {
-    commands.spawn(Camera2dBundle::default());
+    commands.spawn(Camera2d);
     commands.promise(|| ()).then_repeat(asyn!(
         buttons: Query<&Name, Changed<Interaction>>
     => {
@@ -28,46 +28,31 @@ fn setup(mut commands: Commands) {
         }
         asyn::timeout(1.).with_result(Repeat::forever())
     }));
+    commands.spawn(TextFont::from_font_size(30.0));
     commands
-        .spawn(NodeBundle {
-            style: Style {
-                width: Val::Percent(100.),
-                height: Val::Percent(100.),
-                justify_content: JustifyContent::SpaceAround,
-                align_content: AlignContent::SpaceAround,
-                flex_direction: FlexDirection::Column,
-                ..default()
-            },
+        .spawn((Node {
+            width: Val::Percent(100.),
+            height: Val::Percent(100.),
+            justify_content: JustifyContent::SpaceAround,
+            align_content: AlignContent::SpaceAround,
+            flex_direction: FlexDirection::Column,
             ..default()
-        })
+        },))
         .with_children(|parent| {
-            for y in 0..4 {
-                parent
-                    .spawn(NodeBundle {
-                        style: Style {
-                            width: Val::Percent(100.),
-                            height: Val::Percent(20.),
-                            flex_direction: FlexDirection::Row,
-                            justify_content: JustifyContent::SpaceAround,
-                            ..default()
-                        },
+            for i in 0..16 {
+                parent.spawn((
+                    Button,
+                    Node {
+                        width: Val::Px(150.),
+                        height: Val::Px(50.),
+                        margin: UiRect::all(Val::Px(10.)),
+                        justify_content: JustifyContent::Center,
+                        align_items: AlignItems::Center,
                         ..default()
-                    })
-                    .with_children(|parent| {
-                        for x in 0..4 {
-                            parent
-                                .spawn(ButtonBundle {
-                                    background_color: Color::rgb(0.8, 0.8, 0.8).into(),
-                                    style: Style {
-                                        width: Val::Percent(20.),
-                                        height: Val::Percent(100.),
-                                        ..default()
-                                    },
-                                    ..default()
-                                })
-                                .insert(Name::new(format!("{x}x{y}")));
-                        }
-                    });
+                    },
+                    BackgroundColor(Color::srgb(0.2, 0.2, 0.2)),
+                    Name::new(format!("Button {}", i)),
+                ));
             }
         });
 }

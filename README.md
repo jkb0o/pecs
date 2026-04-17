@@ -19,6 +19,8 @@ Resources:
 Compatibility:
 | bevy | pecs |
 |------|------|
+| 0.18 | 0.8  |
+| 0.14 | 0.7  |
 | 0.13 | 0.6  |
 | 0.12 | 0.5  |
 | 0.11 | 0.4  |
@@ -53,7 +55,7 @@ fn main() {
 }
 
 fn setup(mut commands: Commands, time: Res<Time>) {
-    let start = time.elapsed_seconds();
+    let start = time.elapsed_secs();
     commands
         // create PromiseLike chainable commands
         // with the current time as state
@@ -78,7 +80,7 @@ fn setup(mut commands: Commands, time: Res<Time>) {
         }))
         // will be executed right after the previous one
         .then(asyn!(state, time: Res<Time> => {
-            let duration = time.elapsed_seconds() - state.value;
+            let duration = time.elapsed_secs() - state.value;
             info!("It took {duration:0.2}s to do this job.");
             info!("Exiting now");
             asyn::app::exit()

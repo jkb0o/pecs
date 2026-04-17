@@ -11,7 +11,7 @@ fn main() {
 }
 
 fn setup(mut commands: Commands, time: Res<Time>) {
-    let start = time.elapsed_seconds();
+    let start = time.elapsed_secs();
     // create PromiseLike chainable commands with the current time as the state
     commands
         .promise(|| start)
@@ -35,7 +35,7 @@ fn setup(mut commands: Commands, time: Res<Time>) {
         }))
         // will be executed right after the previous one
         .then(asyn!(state, time: Res<Time> => {
-            let duration = time.elapsed_seconds() - state.value;
+            let duration = time.elapsed_secs() - state.value;
             info!("It tooks {duration:0.2}s to do this job.");
             info!("Exiting now");
             asyn::app::exit()

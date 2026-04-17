@@ -1,13 +1,22 @@
-use bevy::app::AppExit;
+use bevy::prelude::*;
 
-use super::*;
+use crate::{Promise, PromiseId};
+
+#[derive(Resource, Default)]
+pub struct ExitRequested(pub bool);
 
 pub fn exit() -> Promise<(), ()> {
     Promise::register(
-        |world, _| {
-            world.resource_mut::<Events<AppExit>>().send(AppExit);
+        |world: &mut World, _: PromiseId| {
+            world.insert_resource(ExitRequested(true));
         },
-        // can't discard AppExit
         |_, _| {},
     )
+}
+
+pub fn process_exit_request(mut exit_requested: ResMut<ExitRequested>, mut messages: ResMut<Messages<AppExit>>) {
+    if exit_requested.0 {
+        exit_requested.0 = false;
+        messages.write(AppExit::Success);
+    }
 }

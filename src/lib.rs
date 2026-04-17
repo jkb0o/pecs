@@ -179,7 +179,7 @@
 //! ```rust
 //! use bevy::prelude::*;
 //! use pecs::prelude::*;
-//! 
+//!
 //! fn setup(mut commands: Commands) {
 //!     commands
 //!         // create a promise with int state
@@ -207,7 +207,7 @@
 //! ```rust
 //! use bevy::prelude::*;
 //! use pecs::prelude::*;
-//! 
+//!
 //! fn setup(mut commands: Commands, time: Res<Time>) {
 //!     let start = time.elapsed_seconds();
 //!     commands
@@ -295,7 +295,9 @@ pub mod prelude {
     impl Plugin for PecsPlugin {
         fn build(&self, app: &mut App) {
             app.init_resource::<pecs_core::timer::Timers>();
+            app.init_resource::<pecs_core::app::ExitRequested>();
             app.add_systems(Update, pecs_core::timer::process_timers);
+            app.add_systems(Update, pecs_core::app::process_exit_request);
 
             app.add_plugins(pecs_http::PromiseHttpPlugin);
             app.add_plugins(pecs_core::ui::PromiseUiPlugin);
